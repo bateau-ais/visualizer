@@ -1,0 +1,4 @@
+# NOVA Visualizer Module Dependencies
+pyyaml>=6.0
+redis>=5.0.0
+flask>=3.0.0
