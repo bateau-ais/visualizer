@@ -1,0 +1,164 @@
+"""
+NOVA Visualizer Backend - Anomalies API
+
+REST endpoints for anomaly data and heatmaps.
+"""
+
+from fastapi import APIRouter, HTTPException, Query
+from datetime import datetime, timedelta
+from typing import Optional
+from models.anomaly import AnomalyEvent, HeatmapResponse, HeatmapCell, DashboardStats
+from services.redis_service import redis_service
+from collections import defaultdict
+import logging
+
+logger = logging.getLogger(__name__)
+router = APIRouter(prefix="/api/anomalies", tags=["anomalies"])
+
+
+@router.get("", response_model=list[AnomalyEvent])
+async def get_anomalies(
+    hours: int = Query(24, description="Time window in hours"),
+    min_score: float = Query(0.0, description="Minimum anomaly score"),
+    limit: int = Query(100, description="Maximum results")
+):
+    """
+    Get recent anomalies.
+    """
+    try:
+        anomalies_data = await redis_service.get_recent_anomalies(hours=hours, limit=limit)
+        
+        # Filter by score
+        filtered = [a for a in anomalies_data if a.get("score", 0) >= min_score]
+        
+        # Convert to Pydantic models
+        anomalies = [AnomalyEvent(**a) for a in filtered]
+        
+        return anomalies
+    
+    except Exception as e:
+        logger.error(f"Error fetching anomalies: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/heatmap", response_model=HeatmapResponse)
+async def get_heatmap(
+    resolution: float = Query(0.1, description="Grid resolution in degrees"),
+    period: str = Query("24h", description="Time period: 24h, 7d, 30d"),
+    anomaly_type: Optional[str] = Query(None, description="Filter by anomaly type")
+):
+    """
+    Get heatmap of anomaly distribution.
+    """
+    try:
+        # Check cache
+        cache_key = f"{resolution}:{period}:{anomaly_type or 'all'}"
+        cached = await redis_service.get_heatmap_cache(cache_key)
+        
+        if cached:
+            return HeatmapResponse(**cached)
+        
+        # Parse period
+        period_hours = {
+            "24h": 24,
+            "7d": 168,
+            "30d": 720
+        }.get(period, 24)
+        
+        # Get anomalies
+        anomalies_data = await redis_service.get_recent_anomalies(hours=period_hours, limit=10000)
+        
+        # Filter by type if specified
+        if anomaly_type:
+            anomalies_data = [
+                a for a in anomalies_data
+                if anomaly_type in a.get("reasons", [])
+            ]
+        
+        # Build grid
+        grid = defaultdict(lambda: {"count": 0, "scores": [], "types": []})
+        
+        for anomaly in anomalies_data:
+            if anomaly.get("lat") is None or anomaly.get("lon") is None:
+                continue
+            
+            lat = anomaly["lat"]
+            lon = anomaly["lon"]
+            
+            # Snap to grid
+            lat_cell = int(lat / resolution) * resolution
+            lon_cell = int(lon / resolution) * resolution
+            
+            cell_key = (lat_cell, lon_cell)
+            grid[cell_key]["count"] += 1
+            grid[cell_key]["scores"].append(anomaly.get("score", 0))
+            grid[cell_key]["types"].extend(anomaly.get("reasons", []))
+        
+        # Convert to HeatmapCells
+        cells = []
+        for (lat_min, lon_min), data in grid.items():
+            # Calculate top types
+            type_counts = defaultdict(int)
+            for t in data["types"]:
+                type_counts[t] += 1
+            top_types = sorted(type_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+            
+            cell = HeatmapCell(
+                lat_min=lat_min,
+                lat_max=lat_min + resolution,
+                lon_min=lon_min,
+                lon_max=lon_min + resolution,
+                count=data["count"],
+                avg_score=sum(data["scores"]) / len(data["scores"]) if data["scores"] else 0,
+                top_types=[t[0] for t in top_types]
+            )
+            cells.append(cell)
+        
+        # Build response
+        response_data = {
+            "cells": [c.model_dump() for c in cells],
+            "resolution": resolution,
+            "period": period,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        # Cache it
+        await redis_service.set_heatmap_cache(cache_key, response_data)
+        
+        return HeatmapResponse(**response_data)
+    
+    except Exception as e:
+        logger.error(f"Error generating heatmap: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/stats", response_model=DashboardStats)
+async def get_dashboard_stats():
+    """
+    Get dashboard statistics.
+    """
+    try:
+        # Count active vessels
+        vessels_active = await redis_service.get_vessel_count()
+        
+        # Count anomalies in last 24h
+        anomalies_data = await redis_service.get_recent_anomalies(hours=24, limit=10000)
+        anomalies_24h = len(anomalies_data)
+        
+        # Detection rate
+        detection_rate = (anomalies_24h / vessels_active * 100) if vessels_active > 0 else 0
+        
+        # Critical count (score > 0.8)
+        critical_count = len([a for a in anomalies_data if a.get("score", 0) > 0.8])
+        
+        return DashboardStats(
+            vessels_active=vessels_active,
+            anomalies_24h=anomalies_24h,
+            detection_rate=round(detection_rate, 2),
+            critical_count=critical_count,
+            timestamp=datetime.utcnow()
+        )
+    
+    except Exception as e:
+        logger.error(f"Error fetching stats: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

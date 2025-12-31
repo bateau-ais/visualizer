@@ -1,0 +1,71 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply border-gray-700;
+  }
+  
+  body {
+    @apply font-sans antialiased;
+  }
+}
+
+@layer components {
+  /* Custom scrollbar for dark theme */
+  ::-webkit-scrollbar {
+    @apply w-2 h-2;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-bg-secondary;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-gray-600 rounded-full;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-gray-500;
+  }
+  
+  /* Leaflet marker customization */
+  .leaflet-container {
+    @apply bg-map-water font-sans;
+  }
+  
+  .leaflet-popup-content-wrapper {
+    @apply bg-bg-tertiary text-text-primary rounded-lg shadow-2xl;
+  }
+  
+  .leaflet-popup-tip {
+    @apply bg-bg-tertiary;
+  }
+  
+  /* Animations */
+  @keyframes glow {
+    0%, 100% {
+      opacity: 1;
+      filter: drop-shadow(0 0 8px currentColor);
+    }
+    50% {
+      opacity: 0.6;
+      filter: drop-shadow(0 0 12px currentColor);
+    }
+  }
+  
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite;
+  }
+}
+
+@layer utilities {
+  .text-shadow {
+    text-shadow: 0 2px 4px rgba(0,0,0,0.3);
+  }
+  
+  .glass {
+    @apply bg-bg-tertiary/80 backdrop-blur-md border border-gray-700/50;
+  }
+}
