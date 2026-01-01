@@ -1,18 +1,20 @@
 export interface Vessel {
     mmsi: number
-    name: string | null
-    imo?: number | null
+    name?: string
+    imo?: number
     type: string
     flag?: string
     lat: number
     lon: number
     sog: number
     cog: number
-    heading: number | null
+    heading: number
     timestamp: string
     anomaly_score: number
     is_anomaly: boolean
     status?: string
+    acknowledged?: boolean
+    acknowledged_at?: string
 }
 
 export interface VesselDetails extends Vessel {

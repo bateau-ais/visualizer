@@ -5,19 +5,19 @@ const router = createRouter({
     routes: [
         {
             path: '/',
-            name: 'dashboard',
-            component: () => import('@/views/Dashboard.vue'),
+            name: 'Dashboard', // Changed from 'dashboard'
+            component: () => import('@/views/Dashboard.vue'), // Assuming Dashboard.vue is the correct component
             meta: { title: 'Dashboard' }
         },
         {
             path: '/map',
-            name: 'map',
+            name: 'Map', // Changed from 'map'
             component: () => import('@/views/MapView.vue'),
-            meta: { title: 'Live Map' }
+            meta: { title: 'Live Map' } // Kept existing meta title
         },
         {
             path: '/heatmap',
-            name: 'heatmap',
+            name: 'Heatmap', // Changed from 'heatmap'
             component: () => import('@/views/Heatmap.vue'),
             meta: { title: 'Anomaly Heatmap' }
         },

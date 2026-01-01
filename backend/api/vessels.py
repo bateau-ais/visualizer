@@ -1,19 +1,19 @@
-"""
-NOVA Visualizer Backend - Vessels API
-
-REST endpoints for vessel data.
-"""
-
 from fastapi import APIRouter, HTTPException, Query
 from datetime import datetime
 from typing import Optional
 from models.vessel import VesselPosition, VesselsResponse, VesselDetails, TrajectoryPoint, AnomalyDetail
 from services.redis_service import redis_service
 from services.vessel_api import vessel_api
+from services.ack_service import ack_service
+from config import settings
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/vessels", tags=["vessels"])
+
+# Import mock data if in demo mode
+if settings.demo_mode:
+    from services.mock_data import mock_generator
 
 
 @router.get("", response_model=VesselsResponse)
@@ -27,7 +27,15 @@ async def get_vessels(
     Get all active vessels with optional filters.
     """
     try:
-        vessels_data = await redis_service.get_all_vessels()
+        # Demo mode: use mock data
+        if settings.demo_mode:
+            vessels_data = [v.model_dump() for v in mock_generator.get_vessels()]
+        else:
+            vessels_data = await redis_service.get_all_vessels()
+        
+        # Add acknowledgement status to each vessel
+        for vessel in vessels_data:
+            vessel['acknowledged'] = ack_service.is_acknowledged(vessel['mmsi'])
         
         # Apply filters
         filtered = vessels_data
@@ -44,15 +52,12 @@ async def get_vessels(
         if anomaly_only:
             filtered = [v for v in filtered if v.get("is_anomaly", False)]
         
-        # Convert to Pydantic models
-        vessels = [VesselPosition(**v) for v in filtered]
-        
         return VesselsResponse(
-            vessels=vessels,
-            total=len(vessels),
+            vessels=[VesselPosition(**v) for v in filtered],
+            total=len(filtered),
             timestamp=datetime.utcnow()
         )
-    
+        
     except Exception as e:
         logger.error(f"Error fetching vessels: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -64,34 +69,103 @@ async def get_vessel_details(mmsi: int):
     Get detailed information for a specific vessel.
     """
     try:
-        # Get current position
-        vessel_data = await redis_service.get_vessel_position(mmsi)
-        if not vessel_data:
-            raise HTTPException(status_code=404, detail=f"Vessel {mmsi} not found")
-        
-        # Get trajectory (last 24h)
-        trajectory_data = await redis_service.get_trajectory(mmsi, hours=24)
-        trajectory = [TrajectoryPoint(**t) for t in trajectory_data]
-        
-        # Get anomalies
-        # TODO: Query anomalies specific to this vessel from Redis
-        anomalies = []
+        # Demo mode: use mock data
+        if settings.demo_mode:
+            vessel = mock_generator.get_vessel_by_mmsi(mmsi)
+            if not vessel:
+                raise HTTPException(status_code=404, detail=f"Vessel {mmsi} not found")
+            
+            vessel_data = vessel.model_dump()
+            # Mock trajectory (last 24h positions)
+            trajectory = mock_generator.get_vessel_trajectory(mmsi, hours=24)
+            # Mock anomalies
+            anomalies = []
+        else:
+            # Get current position
+            vessel_data = await redis_service.get_vessel_position(mmsi)
+            if not vessel_data:
+                raise HTTPException(status_code=404, detail=f"Vessel {mmsi} not found")
+            
+            # Get trajectory (last 24h)
+            trajectory_data = await redis_service.get_trajectory(mmsi, hours=24)
+            trajectory = [TrajectoryPoint(**t) for t in trajectory_data]
+            
+            # Get anomalies
+            anomalies = []
         
         # Get photo
         photo_url = await vessel_api.get_vessel_photo(mmsi)
         
-        # Combine into VesselDetails
-        details = VesselDetails(
+        # Add acknowledgement status
+        vessel_data['acknowledged'] = ack_service.is_acknowledged(mmsi)
+        ack_time = ack_service.get_acknowledgement_time(mmsi)
+        if ack_time:
+            vessel_data['acknowledged_at'] = ack_time.isoformat()
+        
+        return VesselDetails(
             **vessel_data,
             trajectory=trajectory,
             anomalies=anomalies,
             photo_url=photo_url
         )
         
-        return details
-    
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error fetching vessel {mmsi}: {e}")
+        logger.error(f"Error fetching vessel details: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/{mmsi}/acknowledge")
+async def acknowledge_vessel(mmsi: int):
+    """
+    Acknowledge a vessel anomaly.
+    """
+    try:
+        newly_acknowledged = ack_service.acknowledge_vessel(mmsi)
+        
+        return {
+            "mmsi": mmsi,
+            "acknowledged": True,
+            "newly_acknowledged": newly_acknowledged,
+            "acknowledged_at": datetime.utcnow().isoformat()
+        }
+        
+    except Exception as e:
+        logger.error(f"Error acknowledging vessel {mmsi}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/{mmsi}/acknowledge")
+async def unacknowledge_vessel(mmsi: int):
+    """
+    Remove acknowledgement from a vessel.
+    """
+    try:
+        was_acknowledged = ack_service.unacknowledge_vessel(mmsi)
+        
+        return {
+            "mmsi": mmsi,
+            "acknowledged": False,
+            "was_acknowledged": was_acknowledged
+        }
+        
+    except Exception as e:
+        logger.error(f"Error unacknowledging vessel {mmsi}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/acknowledged/list")
+async def get_acknowledged_vessels():
+    """
+    Get list of all acknowledged vessels.
+    """
+    try:
+        return {
+            "acknowledged_vessels": ack_service.get_all_acknowledged(),
+            "total": len(ack_service.acknowledged_vessels)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting acknowledged vessels: {e}")
         raise HTTPException(status_code=500, detail=str(e))

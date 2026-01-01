@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     app_name: str = "NOVA Visualizer"
     app_version: str = "1.0.0"
     debug: bool = False
+    demo_mode: bool = False  # Enable demo mode with mock data
     
     # Server
     host: str = "0.0.0.0"

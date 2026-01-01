@@ -1,0 +1,30 @@
+# NOVA Visualizer - Docker Compose Configuration
+# Mode: DEMO (mock data, no infrastructure required)
+
+services:
+  backend:
+    build: ./backend
+    container_name: nova_visualizer_backend
+    ports:
+      - "8000:8000"
+    environment:
+      - DEMO_MODE=true
+      - APP_NAME=NOVA Visualizer (Docker Demo)
+      - DEBUG=true
+      - CORS_ORIGINS=["http://localhost:5173","http://localhost:8080","http://localhost"]
+    networks:
+      - nova-network
+
+  frontend:
+    build: ./frontend
+    container_name: nova_visualizer_frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - backend
+    networks:
+      - nova-network
+
+networks:
+  nova-network:
+    driver: bridge

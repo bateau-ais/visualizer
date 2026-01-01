@@ -31,26 +31,38 @@ async def lifespan(app: FastAPI):
     # Startup
     logger.info("🚀 Starting NOVA Visualizer Backend")
     
-    try:
-        # Connect to Redis
-        await redis_service.connect()
+    if settings.demo_mode:
+        logger.info("⚠️  DEMO MODE ENABLED - Using mock data")
+        # Start background task to update mock vessels
+        from services.mock_data import mock_generator
+        async def update_demo_data():
+            while True:
+                await asyncio.sleep(5)  # Update every 5 seconds
+                mock_generator.update_vessels()
         
-        # Start NATS subscriber in background
-        asyncio.create_task(nats_subscriber.run())
-        
-        logger.info("✅ All services started")
-        
-    except Exception as e:
-        logger.error(f"❌ Startup failed: {e}")
-        raise
+        asyncio.create_task(update_demo_data())
+        logger.info("✅ Demo mode started")
+    else:
+        try:
+            # Connect to Redis
+            await redis_service.connect()
+            
+            # Start NATS subscriber in background
+            asyncio.create_task(nats_subscriber.run())
+            
+            logger.info("✅ All services started")
+        except Exception as e:
+            logger.error(f"❌ Startup failed: {e}")
+            raise
     
     yield
     
     # Shutdown
     logger.info("🛑 Shutting down gracefully...")
     
-    await nats_subscriber.stop()
-    await redis_service.disconnect()
+    if not settings.demo_mode:
+        await nats_subscriber.stop()
+        await redis_service.disconnect()
     
     logger.info("👋 Shutdown complete")
 
@@ -59,7 +71,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
-    description="Maritime AIS Anomaly Detection Visualization API",
+    description="Maritime AIS Anomaly Detection Visualization API"
+              + (" [DEMO MODE]" if settings.demo_mode else ""),
     lifespan=lifespan
 )
 
@@ -84,17 +97,28 @@ async def root():
     return {
         "name": settings.app_name,
         "version": settings.app_version,
-        "status": "running"
+        "status": "running",
+        "demo_mode": settings.demo_mode
     }
 
 
 @app.get("/health")
 async def health():
     """Health check endpoint."""
+    if settings.demo_mode:
+        from services.mock_data import mock_generator
+        vessel_count = len(mock_generator.get_vessels())
+        return {
+            "status": "healthy",
+            "mode": "demo",
+            "vessels_tracked": vessel_count
+        }
+    
     vessel_count = await redis_service.get_vessel_count()
     
     return {
         "status": "healthy",
+        "mode": "production",
         "redis": "connected",
         "nats": "connected",
         "vessels_tracked": vessel_count

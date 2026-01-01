@@ -10,10 +10,15 @@ from typing import Optional
 from models.anomaly import AnomalyEvent, HeatmapResponse, HeatmapCell, DashboardStats
 from services.redis_service import redis_service
 from collections import defaultdict
+from config import settings
 import logging
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/anomalies", tags=["anomalies"])
+
+# Import mock data if in demo mode
+if settings.demo_mode:
+    from services.mock_data import mock_generator
 
 
 @router.get("", response_model=list[AnomalyEvent])
@@ -26,7 +31,11 @@ async def get_anomalies(
     Get recent anomalies.
     """
     try:
-        anomalies_data = await redis_service.get_recent_anomalies(hours=hours, limit=limit)
+        # Demo mode: use mock data
+        if settings.demo_mode:
+            anomalies_data = [a.model_dump() for a in mock_generator.get_anomalies(hours)]
+        else:
+            anomalies_data = await redis_service.get_recent_anomalies(hours=hours, limit=limit)
         
         # Filter by score
         filtered = [a for a in anomalies_data if a.get("score", 0) >= min_score]
@@ -138,6 +147,11 @@ async def get_dashboard_stats():
     Get dashboard statistics.
     """
     try:
+        # Demo mode: use mock data
+        if settings.demo_mode:
+            stats = mock_generator.get_stats()
+            return DashboardStats(**stats)
+        
         # Count active vessels
         vessels_active = await redis_service.get_vessel_count()
         

@@ -95,6 +95,25 @@ export const useVesselsStore = defineStore('vessels', () => {
         filters.value = { ...filters.value, ...newFilters }
     }
 
+    async function acknowledgeVessel(mmsi: number) {
+        try {
+            await api.post(`/vessels/${mmsi}/acknowledge`)
+
+            // Update local state
+            const vessel = vessels.value.find(v => v.mmsi === mmsi)
+            if (vessel) {
+                vessel.acknowledged = true
+            }
+            if (selectedVessel.value?.mmsi === mmsi) {
+                selectedVessel.value.acknowledged = true
+            }
+        } catch (err: any) {
+            error.value = err.message
+            console.error(`Error acknowledging vessel ${mmsi}:`, err)
+            throw err
+        }
+    }
+
     return {
         // State
         vessels,
@@ -113,6 +132,7 @@ export const useVesselsStore = defineStore('vessels', () => {
         fetchVesselDetails,
         updateVessel,
         selectVessel,
-        setFilters
+        setFilters,
+        acknowledgeVessel
     }
 })
