@@ -8,6 +8,7 @@ import Badge from '@/components/ui/Badge.vue'
 const route = useRoute()
 const searchQuery = ref('')
 const mobileMenuOpen = ref(false)
+const notificationsOpen = ref(false)
 const notificationCount = ref(3)
 
 const navigation = [
@@ -18,6 +19,11 @@ const navigation = [
 
 function isActive(path: string) {
   return route.path === path
+}
+
+function navigateToVessel(mmsi: number) {
+  window.location.href = `/vessel/${mmsi}`
+  notificationsOpen.value = false
 }
 </script>
 
@@ -72,6 +78,7 @@ function isActive(path: string) {
           <!-- Notifications -->
           <button
             class="relative p-2 text-text-secondary hover:text-text-primary hover:bg-bg-tertiary rounded-lg transition-colors"
+            @click="notificationsOpen = !notificationsOpen"
           >
             <Bell class="w-5 h-5" />
             <Badge
@@ -129,6 +136,64 @@ function isActive(path: string) {
             class="pl-10"
           />
         </div>
+      </div>
+    </div>
+    
+    <!-- Notifications Panel -->
+    <div
+      v-if="notificationsOpen"
+      class="absolute top-16 right-4 w-96 max-h-[500px] overflow-y-auto bg-bg-secondary border border-gray-700 rounded-lg shadow-xl z-50"
+    >
+      <div class="p-4 border-b border-gray-700 flex items-center justify-between">
+        <h3 class="text-sm font-semibold text-text-primary">Notifications</h3>
+        <button
+          @click="notificationsOpen = false"
+          class="text-text-muted hover:text-text-primary"
+        >
+          <X class="w-4 h-4" />
+        </button>
+      </div>
+      
+      <div class="divide-y divide-gray-700">
+        <!-- Sample notifications with click handlers -->
+        <div class="p-4 hover:bg-bg-tertiary/50 cursor-pointer transition-colors" @click="navigateToVessel(123456789)">
+          <div class="flex items-start space-x-3">
+            <div class="w-2 h-2 mt-2 rounded-full bg-accent-danger animate-pulse"></div>
+            <div class="flex-1">
+              <p class="text-sm font-medium text-text-primary">Critical Anomaly Detected</p>
+              <p class="text-xs text-text-muted mt-1">Vessel MMSI 123456789 - Score: 95%</p>
+              <p class="text-xs text-text-muted mt-1">2 minutes ago</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="p-4 hover:bg-bg-tertiary/50 cursor-pointer transition-colors" @click="navigateToVessel(987654321)">
+          <div class="flex items-start space-x-3">
+            <div class="w-2 h-2 mt-2 rounded-full bg-accent-warning"></div>
+            <div class="flex-1">
+              <p class="text-sm font-medium text-text-primary">Speed Anomaly</p>
+              <p class="text-xs text-text-muted mt-1">Vessel MMSI 987654321 - Score: 72%</p>
+              <p class="text-xs text-text-muted mt-1">15 minutes ago</p>
+            </div>
+          </div>
+        </div>
+        
+        <div class="p-4 hover:bg-bg-tertiary/50 cursor-pointer transition-colors">
+          <div class="flex items-start space-x-3">
+            <div class="w-2 h-2 mt-2 rounded-full bg-vessel-normal"></div>
+            <div class="flex-1">
+              <p class="text-sm font-medium text-text-primary">System Update</p>
+              <p class="text-xs text-text-muted mt-1">50 new vessels tracked</p>
+              <p class="text-xs text-text-muted mt-1">1 hour ago</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="p-3 border-t border-gray-700 text-center">
+        <button class="text-xs text-accent-primary hover:underline">
+          View all notifications
+        </button>
       </div>
     </div>
   </nav>

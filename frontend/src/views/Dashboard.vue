@@ -93,6 +93,10 @@ const pieOptions = ref({
     ]
   }]
 })
+
+function navigateToVessel(mmsi: number) {
+  window.location.href = `/vessel/${mmsi}`
+}
 </script>
 
 <template>
@@ -209,7 +213,10 @@ const pieOptions = ref({
                 </span>
               </td>
               <td class="py-3 px-4 text-right">
-                <button class="text-sm text-accent-primary hover:underline">
+                <button 
+                  class="text-sm text-accent-primary hover:underline"
+                  @click="navigateToVessel(anomaly.mmsi)"
+                >
                   View Details
                 </button>
               </td>

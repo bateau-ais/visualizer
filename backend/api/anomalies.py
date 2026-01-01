@@ -60,13 +60,6 @@ async def get_heatmap(
     Get heatmap of anomaly distribution.
     """
     try:
-        # Check cache
-        cache_key = f"{resolution}:{period}:{anomaly_type or 'all'}"
-        cached = await redis_service.get_heatmap_cache(cache_key)
-        
-        if cached:
-            return HeatmapResponse(**cached)
-        
         # Parse period
         period_hours = {
             "24h": 24,
@@ -74,14 +67,25 @@ async def get_heatmap(
             "30d": 720
         }.get(period, 24)
         
-        # Get anomalies
-        anomalies_data = await redis_service.get_recent_anomalies(hours=period_hours, limit=10000)
+        # Demo mode: generate mock heatmap data
+        if settings.demo_mode:
+            anomalies_data = [a.model_dump() for a in mock_generator.get_anomalies(period_hours)]
+        else:
+            # Check cache
+            cache_key = f"{resolution}:{period}:{anomaly_type or 'all'}"
+            cached = await redis_service.get_heatmap_cache(cache_key)
+            
+            if cached:
+                return HeatmapResponse(**cached)
+            
+            # Get anomalies from Redis
+            anomalies_data = await redis_service.get_recent_anomalies(hours=period_hours, limit=10000)
         
         # Filter by type if specified
-        if anomaly_type:
+        if anomaly_type and anomaly_type != 'all':
             anomalies_data = [
                 a for a in anomalies_data
-                if anomaly_type in a.get("reasons", [])
+                if any(anomaly_type in str(reason) for reason in a.get("reasons", []))
             ]
         
         # Build grid
@@ -109,7 +113,7 @@ async def get_heatmap(
             # Calculate top types
             type_counts = defaultdict(int)
             for t in data["types"]:
-                type_counts[t] += 1
+                type_counts[str(t)] += 1
             top_types = sorted(type_counts.items(), key=lambda x: x[1], reverse=True)[:3]
             
             cell = HeatmapCell(
@@ -131,8 +135,9 @@ async def get_heatmap(
             "timestamp": datetime.utcnow().isoformat()
         }
         
-        # Cache it
-        await redis_service.set_heatmap_cache(cache_key, response_data)
+        # Cache it (only in production mode)
+        if not settings.demo_mode:
+            await redis_service.set_heatmap_cache(cache_key, response_data)
         
         return HeatmapResponse(**response_data)
     

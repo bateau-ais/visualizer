@@ -11,6 +11,7 @@ import Badge from '@/components/ui/Badge.vue'
 const vesselsStore = useVesselsStore()
 const { connect, disconnect, connected } = useWebSocket()
 const sidebarOpen = ref(false)
+const legendOpen = ref(true)
 const mapRef = ref()
 
 onMounted(async () => {
@@ -55,7 +56,10 @@ watch(() => vesselsStore.vessels, () => {
           Filters
         </Button>
         
-        <Button variant="secondary">
+        <Button
+          variant="secondary"
+          @click="legendOpen = !legendOpen"
+        >
           <Layers class="w-4 h-4 mr-2" />
           Layers
         </Button>
@@ -85,7 +89,7 @@ watch(() => vesselsStore.vessels, () => {
       </div>
       
       <!-- Legend -->
-      <div class="absolute bottom-4 right-4 z-[1000] glass rounded-lg p-4 border border-gray-700 max-w-xs">
+      <div v-if="legendOpen" class="absolute bottom-4 right-4 z-[1000] glass rounded-lg p-4 border border-gray-700 max-w-xs">
         <h3 class="text-sm font-semibold text-text-primary mb-3 flex items-center">
           <Layers class="w-4 h-4 mr-2" />
           Legend
