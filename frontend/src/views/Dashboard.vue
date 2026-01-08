@@ -120,7 +120,6 @@ function navigateToVessel(mmsi: number) {
         label="Anomalies (24h)"
         :icon="AlertTriangle"
         variant="warning"
-        :trend="0.3"
       />
       
       <StatsCard
@@ -128,7 +127,6 @@ function navigateToVessel(mmsi: number) {
         label="Detection Rate (%)"
         :icon="TrendingUp"
         variant="success"
-        :trend="-0.2"
       />
       
       <StatsCard
@@ -161,7 +159,10 @@ function navigateToVessel(mmsi: number) {
     </div>
     
     <!-- Recent Anomalies Table -->
-    <Card title="Recent Anomalies">
+    <Card title="Recent Anomalies (24h)">
+      <p class="text-xs text-text-muted mb-4 -mt-2">
+        History of detected anomalies. Note: listed vessels may not be currently active on the Live Map.
+      </p>
       <div class="overflow-x-auto">
         <table class="w-full">
           <thead>

@@ -9,7 +9,7 @@ const route = useRoute()
 const searchQuery = ref('')
 const mobileMenuOpen = ref(false)
 const notificationsOpen = ref(false)
-const notificationCount = ref(3)
+const notificationCount = ref(0)
 
 const navigation = [
   { name: 'Dashboard', path: '/' },
@@ -155,38 +155,9 @@ function navigateToVessel(mmsi: number) {
       </div>
       
       <div class="divide-y divide-gray-700">
-        <!-- Sample notifications with click handlers -->
-        <div class="p-4 hover:bg-bg-tertiary/50 cursor-pointer transition-colors" @click="navigateToVessel(123456789)">
-          <div class="flex items-start space-x-3">
-            <div class="w-2 h-2 mt-2 rounded-full bg-accent-danger animate-pulse"></div>
-            <div class="flex-1">
-              <p class="text-sm font-medium text-text-primary">Critical Anomaly Detected</p>
-              <p class="text-xs text-text-muted mt-1">Vessel MMSI 123456789 - Score: 95%</p>
-              <p class="text-xs text-text-muted mt-1">2 minutes ago</p>
-            </div>
-          </div>
-        </div>
-        
-        <div class="p-4 hover:bg-bg-tertiary/50 cursor-pointer transition-colors" @click="navigateToVessel(987654321)">
-          <div class="flex items-start space-x-3">
-            <div class="w-2 h-2 mt-2 rounded-full bg-accent-warning"></div>
-            <div class="flex-1">
-              <p class="text-sm font-medium text-text-primary">Speed Anomaly</p>
-              <p class="text-xs text-text-muted mt-1">Vessel MMSI 987654321 - Score: 72%</p>
-              <p class="text-xs text-text-muted mt-1">15 minutes ago</p>
-            </div>
-          </div>
-        </div>
-        
-        <div class="p-4 hover:bg-bg-tertiary/50 cursor-pointer transition-colors">
-          <div class="flex items-start space-x-3">
-            <div class="w-2 h-2 mt-2 rounded-full bg-vessel-normal"></div>
-            <div class="flex-1">
-              <p class="text-sm font-medium text-text-primary">System Update</p>
-              <p class="text-xs text-text-muted mt-1">50 new vessels tracked</p>
-              <p class="text-xs text-text-muted mt-1">1 hour ago</p>
-            </div>
-          </div>
+        <!-- Notification list -->
+        <div v-if="notificationCount === 0" class="p-8 text-center text-text-muted">
+          No notifications
         </div>
       </div>
       

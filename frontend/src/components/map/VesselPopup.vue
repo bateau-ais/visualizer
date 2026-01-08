@@ -59,8 +59,8 @@ async function acknowledge() {
       </div>
       
       <div class="flex items-center gap-2">
-        <Badge :variant="badgeVariant" :dot="showPulsing" size="sm">
-          {{ vessel.is_anomaly ? `Anomaly (${(vessel.anomaly_score * 100).toFixed(0)}%)` : 'Normal' }}
+        <Badge :variant="badgeVariant" :dot="showPulsing" size="sm" title="Confidence score (0-100%) based on statistical analysis">
+          {{ vessel.is_anomaly ? `Anomaly Score: ${(vessel.anomaly_score * 100).toFixed(0)}%` : 'Normal' }}
         </Badge>
         <Badge v-if="vessel.acknowledged" variant="success" size="sm">
           <CheckCircle class="w-3 h-3 mr-1" />

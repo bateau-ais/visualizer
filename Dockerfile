@@ -1,5 +1,5 @@
 # NOVA Visualizer Module
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ RUN pip install -q --no-cache-dir -r requirements.txt
 COPY visualizer/ .
 
 # Expose port for web interface
-EXPOSE 5000
+EXPOSE 8000
 
 # Run the main application
 CMD ["python", "backend/main.py"]

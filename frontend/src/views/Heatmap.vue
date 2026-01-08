@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, watch, nextTick } from 'vue'
 import LeafletMap from '@/components/map/LeafletMap.vue'
+import L from 'leaflet'
 import Card from '@/components/ui/Card.vue'
 import Button from '@/components/ui/Button.vue'
 import Select from '@/components/ui/Select.vue'
@@ -12,6 +13,8 @@ const period = ref('24h')
 const anomalyType = ref('all')
 const loading = ref(false)
 const heatmapData = ref<any>(null)
+const mapRef = ref()
+const layerGroup = ref<L.LayerGroup | null>(null)
 
 const resolutionOptions = [
   { value: 0.01, label: 'High (1 km / 0.01°)' },
@@ -44,6 +47,7 @@ async function generateHeatmap() {
     })
     heatmapData.value = response.data
     console.log('Heatmap data:', heatmapData.value)
+    renderHeatmap()
   } catch (error) {
     console.error('Error generating heatmap:', error)
   } finally {
@@ -84,6 +88,89 @@ function convertToCSV(cells: any[]) {
 
 onMounted(() => {
   generateHeatmap()
+})
+
+function getColor(score: number): string {
+  // Gradient from Blue (low) to Yellow (medium) to Red (high)
+  if (score < 0.3) return '#1e40af'
+  if (score < 0.6) return '#fbbf24'
+  return '#ef4444'
+}
+
+function renderHeatmap() {
+  if (!heatmapData.value || !mapRef.value?.map?.value) return
+
+  const map = mapRef.value.map.value
+  
+  // Initialize layer group if needed
+  if (!layerGroup.value) {
+    layerGroup.value = L.layerGroup().addTo(map)
+  }
+  
+  // Clear existing layers
+  layerGroup.value.clearLayers()
+  
+  // Add new layers
+  heatmapData.value.cells.forEach((cell: any) => {
+    const bounds: [number, number][] = [
+      [cell.lat_min, cell.lon_min],
+      [cell.lat_max, cell.lon_max]
+    ]
+    
+    const color = getColor(cell.avg_score)
+    
+    const rectangle = L.rectangle(bounds, {
+      color: color,
+      fillColor: color,
+      fillOpacity: 0.5,
+      weight: 1
+    })
+    
+    // Popup with details
+    const popupContent = `
+      <div class="text-sm p-2">
+        <h4 class="font-bold mb-1">Anomaly Zone</h4>
+        <div class="space-y-1">
+          <p>Count: <span class="font-mono">${cell.count}</span></p>
+          <p>Avg Score: <span class="font-mono">${(cell.avg_score * 100).toFixed(0)}%</span></p>
+          <div class="mt-2 text-xs text-gray-400">
+            Types:<br/>
+            ${cell.top_types.join(', ')}
+          </div>
+        </div>
+      </div>
+    `
+    
+    rectangle.bindPopup(popupContent, {
+      closeButton: false,
+      className: 'heatmap-popup glass-popup'
+    })
+    
+    // Hover effect
+    rectangle.on('mouseover', function(e) {
+      this.setStyle({ fillOpacity: 0.8, weight: 2 })
+    })
+    rectangle.on('mouseout', function(e) {
+      this.setStyle({ fillOpacity: 0.5, weight: 1 })
+    })
+    
+    layerGroup.value?.addLayer(rectangle)
+  })
+  
+  // Fit bounds to show all data
+  if (heatmapData.value.cells.length > 0) {
+    const allBounds = heatmapData.value.cells.map((c: any) => [
+      [c.lat_min, c.lon_min],
+      [c.lat_max, c.lon_max]
+    ])
+    map.fitBounds(allBounds)
+  }
+}
+
+watch(() => mapRef.value?.map, (newMap) => {
+  if (newMap) {
+     renderHeatmap()
+  }
 })
 </script>
 
@@ -149,31 +236,14 @@ onMounted(() => {
           <Flame class="w-12 h-12 text-accent-warning animate-pulse" />
         </div>
         
-        <div v-else-if="!heatmapData || heatmapData.cells.length === 0" class="h-full flex items-center justify-center bg-bg-primary rounded-lg border border-gray-700">
-          <div class="text-center">
-            <Flame class="w-16 h-16 text-accent-warning mx-auto mb-4" />
-            <h3 class="text-xl font-semibold text-text-primary mb-2">
-              No Anomalies Found
-            </h3>
-            <p class="text-text-secondary">
-              No anomalies detected for the selected period and filters
-            </p>
-          </div>
-        </div>
-        
-        <div v-else class="h-full">
-          <p class="text-center text-text-muted mb-2">
-            Heatmap visualization: {{ heatmapData.cells.length }} cells with anomalies
-          </p>
-          <div class="h-[calc(100%-2rem)] bg-bg-primary rounded-lg border border-gray-700 flex items-center justify-center">
-            <div class="text-center">
-              <Flame class="w-12 h-12 text-accent-warning mx-auto mb-3" />
-              <p class="text-text-secondary text-sm">
-                Leaflet heatmap layer integration<br />
-                will render {{ heatmapData.cells.length }} hotspot zones here
-              </p>
-            </div>
-          </div>
+        <div class="h-full rounded-lg overflow-hidden border border-gray-700 relative">
+          <LeafletMap
+            ref="mapRef"
+            container-id="heatmap-map"
+            :vessels="[]"
+            :center="[48.8566, 2.3522]"
+            :zoom="3"
+          />
         </div>
         
         <!-- Legend -->

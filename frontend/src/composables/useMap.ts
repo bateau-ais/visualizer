@@ -39,11 +39,11 @@ export function useMap(containerId: string) {
             className: 'vessel-marker',
             html: `
         <div class="relative" style="transform: rotate(${rotation}deg)">
-          <div class="absolute -inset-2 rounded-full opacity-30 animate-pulse" style="background: ${color}"></div>
+          <div class="absolute -inset-2 rounded-full opacity-30 ${vessel.is_anomaly && !vessel.acknowledged ? 'animate-pulse' : ''}" style="background: ${color}"></div>
           <svg width="24" height="24" viewBox="0 0 24 24" fill="${color}" stroke="white" stroke-width="1.5">
             <path d="M12 2L4 20h16L12 2z"/>
           </svg>
-          ${vessel.is_anomaly ? `<div class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 animate-ping"></div>` : ''}
+          ${vessel.is_anomaly && !vessel.acknowledged ? `<div class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 animate-ping"></div>` : ''}
         </div>
       `,
             iconSize: [24, 24],
@@ -143,6 +143,7 @@ export function useMap(containerId: string) {
         updateVesselPosition,
         removeVesselMarker,
         clearAllMarkers,
-        fitBounds
+        fitBounds,
+        map
     }
 }

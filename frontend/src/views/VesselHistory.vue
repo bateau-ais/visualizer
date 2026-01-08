@@ -300,7 +300,7 @@ async function acknowledge() {
           <AlertTriangle class="w-6 h-6 text-accent-danger flex-shrink-0" />
           <div class="flex-1">
             <h3 class="text-lg font-semibold text-accent-danger mb-2">
-              Anomaly Detected (Score: {{ (vessel.anomaly_score * 100).toFixed(0) }}%)
+              Anomaly Detected (Severity Score: {{ (vessel.anomaly_score * 100).toFixed(0) }}%)
             </h3>
             <p class="text-sm text-text-secondary mb-3">
               This vessel has been flagged for unusual behavior. Review the trajectory and speed history below for analysis.

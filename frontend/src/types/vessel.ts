@@ -15,6 +15,8 @@ export interface Vessel {
     status?: string
     acknowledged?: boolean
     acknowledged_at?: string
+    trajectory?: TrajectoryPoint[]
+    photo_url?: string
 }
 
 export interface VesselDetails extends Vessel {

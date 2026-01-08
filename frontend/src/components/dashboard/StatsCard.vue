@@ -38,7 +38,7 @@ const variantColors = computed(() => {
           {{ value.toLocaleString() }}
         </p>
         
-        <div v-if="trend !== undefined" class="mt-2 flex items-center space-x-1">
+        <div v-if="trend !== undefined && value > 0" class="mt-2 flex items-center space-x-1">
           <span :class="['text-sm font-medium', trendColor]">
             {{ trend > 0 ? '+' : '' }}{{ trend.toFixed(1) }}%
           </span>

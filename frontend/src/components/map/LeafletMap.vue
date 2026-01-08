@@ -89,7 +89,8 @@ function onVesselClick(vessel: Vessel) {
 // Expose update method for parent components
 defineExpose({
   updateVesselPosition,
-  fitBounds
+  fitBounds,
+  map
 })
 </script>
 
