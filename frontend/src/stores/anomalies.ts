@@ -10,6 +10,10 @@ export const useAnomaliesStore = defineStore('anomalies', () => {
     const loading = ref(false)
     const error = ref<string | null>(null)
 
+    // Batching logic
+    const pendingAnomalies: AnomalyEvent[] = []
+    let flushTimer: number | null = null
+
     // Computed
     const recentAnomalies = computed(() =>
         anomalies.value.slice(0, 10)
@@ -26,9 +30,10 @@ export const useAnomaliesStore = defineStore('anomalies', () => {
 
         try {
             const response = await api.get('/anomalies', {
-                params: { hours, min_score: minScore }
+                params: { hours, min_score: minScore, limit: 100 } // Request limit if backend supports it
             })
-            anomalies.value = response.data
+            // Cap at 100 strictly
+            anomalies.value = response.data.slice(0, 100)
         } catch (err: any) {
             error.value = err.message
             console.error('Error fetching anomalies:', err)
@@ -47,13 +52,28 @@ export const useAnomaliesStore = defineStore('anomalies', () => {
         }
     }
 
-    function addAnomaly(anomaly: AnomalyEvent) {
-        // Add to beginning
-        anomalies.value.unshift(anomaly)
+    function flushUpdates() {
+        if (pendingAnomalies.length === 0) return
 
-        // Keep only last 1000
-        if (anomalies.value.length > 1000) {
-            anomalies.value = anomalies.value.slice(0, 1000)
+        // Prepend all pending anomalies
+        // Create new array to trigger reactivity once
+        const newAnomalies = [...pendingAnomalies, ...anomalies.value]
+
+        // Cap at 100 items to prevent memory leaks and UI lag
+        anomalies.value = newAnomalies.slice(0, 100)
+
+        // Clear buffer
+        pendingAnomalies.length = 0 // Clear in place
+        flushTimer = null
+    }
+
+    function addAnomaly(anomaly: AnomalyEvent) {
+        // Queue update
+        pendingAnomalies.unshift(anomaly) // Add to front of batch
+
+        // Schedule flush if not already scheduled
+        if (!flushTimer) {
+            flushTimer = window.setTimeout(flushUpdates, 1000) // 1 second batch window (slower than vessels to allow reading)
         }
     }
 

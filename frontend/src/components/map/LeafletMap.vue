@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, watch, createApp } from 'vue'
+import { onMounted, watch, createApp, ref } from 'vue'
 import { useMap } from '@/composables/useMap'
 import { useVesselsStore } from '@/stores/vessels'
 import type { Vessel } from '@/types/vessel'
@@ -19,15 +19,42 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const vesselsStore = useVesselsStore()
-const { map, markers, initMap, addVesselMarker, updateVesselPosition, removeVesselMarker, clearAllMarkers, fitBounds } = useMap(props.containerId)
+const { map, markers, initMap, addVesselMarker, updateVesselPosition, removeVesselMarker, clearAllMarkers, setTrajectory, removeTrajectory, fitBounds } = useMap(props.containerId)
 
 onMounted(() => {
   initMap(props.center, props.zoom)
   renderVessels()
 })
 
+const renderRequest = ref<number | null>(null)
+
 watch(() => props.vessels, () => {
-  renderVessels()
+  if (renderRequest.value) {
+    cancelAnimationFrame(renderRequest.value)
+  }
+  renderRequest.value = requestAnimationFrame(() => {
+    renderVessels()
+    renderRequest.value = null
+  })
+}, { deep: true }) // Re-enabled deep watch for reliability in demo
+
+// Watch for selected vessel to draw trajectory
+watch(() => vesselsStore.selectedVessel, async (vessel) => {
+  if (vessel) {
+    // If we have trajectory data, draw it
+    if ('trajectory' in vessel && Array.isArray(vessel.trajectory)) {
+       setTrajectory(vessel.trajectory)
+    } else {
+       // Fetch details if not present (handled by store usually, but let's be safe)
+       // Actually store.selectVessel doesn't fetch details automatically unless onVesselClick calls it?
+       // onVesselClick calls store.selectVessel.
+       // We should fetch details here if missing? 
+       // Better: onVesselClick triggers fetch.
+       removeTrajectory()
+    }
+  } else {
+    removeTrajectory()
+  }
 }, { deep: true })
 
 function renderVessels() {
@@ -82,8 +109,11 @@ function onVesselClick(vessel: Vessel) {
     .setContent(popupContainer)
     .openOn(map.value)
   
-  // Store selected vessel
+  // Store selected vessel and fetch details (trajectory)
   vesselsStore.selectVessel(vessel.mmsi)
+  vesselsStore.fetchVesselDetails(vessel.mmsi).then((details) => {
+      // Logic handled by watcher
+  })
 }
 
 // Expose update method for parent components

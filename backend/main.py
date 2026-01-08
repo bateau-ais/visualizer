@@ -10,6 +10,9 @@ from contextlib import asynccontextmanager
 import asyncio
 import logging
 
+import asyncio
+import logging
+
 from config import settings
 from api import vessels, anomalies, websocket
 from services.redis_service import redis_service

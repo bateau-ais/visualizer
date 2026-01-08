@@ -6,6 +6,7 @@ import api from '@/utils/api'
 export const useVesselsStore = defineStore('vessels', () => {
     // State
     const vessels = ref<Vessel[]>([])
+    const mmsiToIndex = ref<Map<number, number>>(new Map()) // Optimization: O(1) lookup
     const selectedVessel = ref<Vessel | null>(null)
     const loading = ref(false)
     const error = ref<string | null>(null)
@@ -19,12 +20,24 @@ export const useVesselsStore = defineStore('vessels', () => {
         period: '24h'
     })
 
+    // Batching logic
+    const pendingUpdates = new Map<number, Vessel>()
+    let flushTimer: number | null = null
+
     // Computed
     const vesselsCount = computed(() => vessels.value.length)
     const anomalousVessels = computed(() =>
         vessels.value.filter(v => v.is_anomaly)
     )
     const anomalyCount = computed(() => anomalousVessels.value.length)
+
+    // Helper to rebuild index map
+    function rebuildIndexMap() {
+        mmsiToIndex.value.clear()
+        vessels.value.forEach((v, idx) => {
+            mmsiToIndex.value.set(v.mmsi, idx)
+        })
+    }
 
     // Actions
     async function fetchVessels() {
@@ -45,6 +58,7 @@ export const useVesselsStore = defineStore('vessels', () => {
 
             const response = await api.get(`/vessels?${params}`)
             vessels.value = response.data.vessels
+            rebuildIndexMap()
         } catch (err: any) {
             error.value = err.message
             console.error('Error fetching vessels:', err)
@@ -65,17 +79,39 @@ export const useVesselsStore = defineStore('vessels', () => {
         }
     }
 
-    function updateVessel(vesselData: Vessel) {
-        const index = vessels.value.findIndex(v => v.mmsi === vesselData.mmsi)
-        if (index !== -1) {
-            vessels.value[index] = vesselData
-        } else {
-            vessels.value.push(vesselData)
-        }
+    function flushUpdates() {
+        if (pendingUpdates.size === 0) return
 
-        // Update selected vessel if it's the same
-        if (selectedVessel.value?.mmsi === vesselData.mmsi) {
-            selectedVessel.value = vesselData
+        // Process all pending updates in one go
+        pendingUpdates.forEach((vesselData, mmsi) => {
+            const index = mmsiToIndex.value.get(mmsi)
+
+            if (index !== undefined) {
+                // Update existing
+                vessels.value[index] = vesselData
+            } else {
+                // Add new
+                const newIdx = vessels.value.push(vesselData) - 1
+                mmsiToIndex.value.set(mmsi, newIdx)
+            }
+
+            // Update selected vessel if it's the same
+            if (selectedVessel.value?.mmsi === mmsi) {
+                selectedVessel.value = vesselData
+            }
+        })
+
+        pendingUpdates.clear()
+        flushTimer = null
+    }
+
+    function updateVessel(vesselData: Vessel) {
+        // Queue update
+        pendingUpdates.set(vesselData.mmsi, vesselData)
+
+        // Schedule flush if not already scheduled
+        if (!flushTimer) {
+            flushTimer = window.setTimeout(flushUpdates, 500) // 500ms batch window
         }
     }
 
@@ -85,9 +121,9 @@ export const useVesselsStore = defineStore('vessels', () => {
             return
         }
 
-        const vessel = vessels.value.find(v => v.mmsi === mmsi)
-        if (vessel) {
-            selectedVessel.value = vessel
+        const index = mmsiToIndex.value.get(mmsi)
+        if (index !== undefined) {
+            selectedVessel.value = vessels.value[index]
         }
     }
 
@@ -99,11 +135,12 @@ export const useVesselsStore = defineStore('vessels', () => {
         try {
             await api.post(`/vessels/${mmsi}/acknowledge`)
 
-            // Update local state
-            const vessel = vessels.value.find(v => v.mmsi === mmsi)
-            if (vessel) {
-                vessel.acknowledged = true
+            // Update local state and map
+            const index = mmsiToIndex.value.get(mmsi)
+            if (index !== undefined) {
+                vessels.value[index].acknowledged = true
             }
+
             if (selectedVessel.value?.mmsi === mmsi) {
                 selectedVessel.value.acknowledged = true
             }

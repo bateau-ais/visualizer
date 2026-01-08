@@ -9,6 +9,8 @@ import json
 from typing import Optional, List
 from datetime import datetime, timedelta
 from config import settings
+from models.vessel import VesselPosition, TrajectoryPoint, AnomalyDetail
+from models.anomaly import AnomalyEvent, DashboardStats
 import logging
 
 logger = logging.getLogger(__name__)

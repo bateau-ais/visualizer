@@ -6,9 +6,12 @@ Listens to nova.fused topic and updates Redis with vessel positions.
 
 import asyncio
 import json
+import msgpack
 from nats.aio.client import Client as NATS
 from config import settings
 from services.redis_service import redis_service
+from models.vessel import VesselPosition
+from api.websocket import broadcast_vessel_update, broadcast_anomaly
 import logging
 
 logger = logging.getLogger(__name__)
@@ -25,39 +28,56 @@ class NATSSubscriber:
         """Connect to NATS."""
         try:
             await self.nc.connect(settings.nats_url)
-            logger.info(f"✅ Connected to NATS at {settings.nats_url}")
+            logger.info(f"Connected to NATS at {settings.nats_url}")
         except Exception as e:
-            logger.error(f"❌ NATS connection failed: {e}")
+            logger.error(f"NATS connection failed: {e}")
             raise
     
     async def message_handler(self, msg):
         """Handle incoming NATS message."""
         try:
-            data = json.loads(msg.data.decode())
+            # Parse MessagePack
+            data = msgpack.unpackb(msg.data)
+            
+            # Map Almanach/Analyzer keys to Visualizer internal keys
+            # EnrichedAISMessage/AnalysisResult -> Visualizer Schema
+            vessel_name = data.get("vessel_name") or data.get("name")
+            vessel_type = data.get("vessel_type") or data.get("type", "unknown")
+            nav_status = data.get("nav_status") or data.get("status")
+            
+            is_anomaly = data.get("anomaly_detected") or data.get("is_anomaly", False)
+            anomaly_score = data.get("anomaly_score", 0.0)
             
             # Extract vessel position
             vessel_data = {
                 "mmsi": data.get("mmsi"),
-                "name": data.get("name"),
+                "name": vessel_name,
                 "imo": data.get("imo"),
-                "type": data.get("type", "unknown"),
-                "flag": data.get("flag"),
-                "lat": data["lat"],
-                "lon": data["lon"],
-                "sog": data["sog"],
-                "cog": data["cog"],
+                "type": str(vessel_type),
+                "flag": data.get("flag"), # Usually derived or enriched elsewhere
+                "lat": data.get("lat"),
+                "lon": data.get("lon"),
+                "sog": data.get("sog"),
+                "cog": data.get("cog"),
                 "heading": data.get("heading"),
-                "timestamp": data["timestamp"],
-                "anomaly_score": data.get("anomaly_score", 0.0),
-                "is_anomaly": data.get("is_anomaly", False),
-                "status": data.get("status")
+                "timestamp": data.get("timestamp"),
+                "anomaly_score": anomaly_score,
+                "is_anomaly": is_anomaly,
+                "status": nav_status
             }
             
+            # Basic validation
+            if not vessel_data["lat"] or not vessel_data["lon"]:
+                return
+
             # Store in Redis
             await redis_service.store_vessel_position(
                 data["mmsi"],
                 vessel_data
             )
+            
+            # Broadcast update to WebSocket clients
+            await broadcast_vessel_update(vessel_data)
             
             # Store trajectory point
             await redis_service.store_trajectory_point(
@@ -68,20 +88,24 @@ class NATSSubscriber:
             )
             
             # If anomaly, store it
-            if data.get("is_anomaly"):
+            if is_anomaly:
                 anomaly_data = {
                     "data_id": data.get("data_id"),
                     "mmsi": data["mmsi"],
                     "timestamp": data["timestamp"],
-                    "score": data.get("anomaly_score", 0.0),
+                    "score": anomaly_score,
                     "reasons": data.get("anomaly_reasons", []),
                     "confidence": data.get("confidence", 0.0),
-                    "vessel_name": data.get("name"),
+                    "vessel_name": vessel_name,
                     "lat": data["lat"],
                     "lon": data["lon"]
                 }
                 await redis_service.store_anomaly(anomaly_data)
-                logger.info(f"🔴 Anomaly detected: {data['mmsi']} (score={anomaly_data['score']:.2f})")
+                
+                # Broadcast anomaly
+                await broadcast_anomaly(anomaly_data)
+                
+                logger.info(f"Anomaly detected: {data['mmsi']} (score={anomaly_data['score']:.2f})")
             
         except Exception as e:
             logger.error(f"Error processing NATS message: {e}")
@@ -93,7 +117,7 @@ class NATSSubscriber:
                 settings.nats_subject,
                 cb=self.message_handler
             )
-            logger.info(f"📡 Subscribed to {settings.nats_subject}")
+            logger.info(f"Subscribed to {settings.nats_subject}")
             self.running = True
         except Exception as e:
             logger.error(f"NATS subscription failed: {e}")

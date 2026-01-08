@@ -10,9 +10,15 @@ export function useWebSocket() {
     const anomaliesStore = useAnomaliesStore()
 
     function connect() {
-        // Use native WebSocket
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-        const wsUrl = `${protocol}//${window.location.host}/ws`
+        // Determine correct WebSocket URL
+        // In dev mode (Vite typically 5173), connect directly to backend (8000) to avoid proxy issues
+        let wsUrl: string
+        if (window.location.port === '5173') {
+            wsUrl = 'ws://localhost:8000/ws'
+        } else {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+            wsUrl = `${protocol}//${window.location.host}/ws`
+        }
 
         socket.value = new WebSocket(wsUrl)
 

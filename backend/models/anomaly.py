@@ -45,3 +45,10 @@ class DashboardStats(BaseModel):
     detection_rate: float
     critical_count: int
     timestamp: datetime
+
+
+class AnomaliesResponse(BaseModel):
+    """Response for GET /anomalies."""
+    anomalies: list[AnomalyEvent]
+    total: int
+    timestamp: datetime
