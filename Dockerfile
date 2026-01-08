@@ -4,14 +4,14 @@ FROM python:3.10-slim
 WORKDIR /app
 
 # Copy dependencies
-COPY requirements.txt .
+COPY visualizer/backend/requirements.txt .
 RUN pip install -q --no-cache-dir -r requirements.txt
 
 # Copy application files
-COPY . .
+COPY visualizer/ .
 
 # Expose port for web interface
 EXPOSE 5000
 
 # Run the main application
-CMD ["python", "app.py"]
+CMD ["python", "backend/main.py"]
