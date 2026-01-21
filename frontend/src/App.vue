@@ -9,7 +9,11 @@ import NotificationCenter from '@/components/layout/NotificationCenter.vue'
     <Navbar />
     
     <main class="pt-16">
-      <RouterView />
+      <RouterView v-slot="{ Component }">
+        <KeepAlive include="MapView">
+          <component :is="Component" />
+        </KeepAlive>
+      </RouterView>
     </main>
     
     <NotificationCenter />

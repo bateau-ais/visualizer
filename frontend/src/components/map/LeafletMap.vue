@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, watch, createApp, ref } from 'vue'
+import { onMounted, onUnmounted, watch, createApp, ref, shallowRef } from 'vue'
 import { useCanvasMap } from '@/composables/useCanvasMap'
 import { useVesselsStore } from '@/stores/vessels'
 import type { Vessel } from '@/types/vessel'
@@ -17,6 +17,10 @@ const props = withDefaults(defineProps<Props>(), {
   center: () => [48.8566, 2.3522],
   zoom: 6
 })
+
+const emit = defineEmits<{
+  (e: 'move', payload: { center: L.LatLng, zoom: number }): void
+}>()
 
 const vesselsStore = useVesselsStore()
 const { 
@@ -47,6 +51,9 @@ function getVesselHash(vessels: Vessel[]): string {
 
 // Optimized watch for vessels: only trigger canvas update if data actually changed
 // and use a throttled approach for position updates
+const hasAutoFitted = ref(false)
+
+// Throttled watcher for vessel updates
 watch(() => props.vessels, (newVessels) => {
   const newHash = getVesselHash(newVessels)
   
@@ -58,22 +65,34 @@ watch(() => props.vessels, (newVessels) => {
     renderRequest.value = requestAnimationFrame(() => {
       // Sync canvas with all state: vessels, selection, AND hover
       updateVessels(newVessels, vesselsStore.selectedVessel?.mmsi ?? null, hoveredMMSI.value)
+      
+      // Auto-fit bounds on first load if vessels exist
+      if (!hasAutoFitted.value && newVessels.length > 0) {
+        fitBounds(newVessels)
+        hasAutoFitted.value = true
+      }
+
       renderRequest.value = null
       
       // Update popup position if it exists (follow moving vessel)
-      if (currentPopup.value && vesselsStore.selectedVessel) {
+      // GUARD: Check if popup is still valid and attached to map to avoid animation crashes
+      if (currentPopup.value && vesselsStore.selectedVessel && map.value) {
         const selected = newVessels.find(v => v.mmsi === vesselsStore.selectedVessel?.mmsi)
-        if (selected) {
-           currentPopup.value.setLatLng([selected.lat, selected.lon])
-        } else {
+        // Ensure coordinates are valid and popup is still in the DOM
+        if (selected && isFinite(selected.lat) && isFinite(selected.lon)) {
+           try {
+             currentPopup.value.setLatLng([selected.lat, selected.lon])
+           } catch (e) {
+             console.warn('[LeafletMap] Failed to update popup position safely:', e)
+           }
+        } else if (!selected) {
            // Selected vessel disappeared
-           currentPopup.value.remove()
-           currentPopup.value = null
+           closeSelection()
         }
       }
     })
   }
-}, { deep: false }) // DISABLE deep watch on all vessels
+}, { deep: false })
 
 // Watch for selection changes (from outside or clicks)
 watch(() => vesselsStore.selectedVessel, (vessel) => {
@@ -89,7 +108,8 @@ watch(() => vesselsStore.selectedVessel, (vessel) => {
   updateVessels(props.vessels, vessel?.mmsi ?? null, hoveredMMSI.value)
 })
 
-const currentPopup = ref<L.Popup | null>(null)
+// USE shallowRef for Leaflet objects
+const currentPopup = shallowRef<L.Popup | null>(null)
 let currentPopupApp: any = null
 
 function closeSelection() {
@@ -188,6 +208,12 @@ onMounted(() => {
   if (m) {
     m.on('click', handleMapClick)
     m.on('mousemove', handleMapMouseMove)
+    m.on('moveend', () => {
+      emit('move', {
+        center: m.getCenter(),
+        zoom: m.getZoom()
+      })
+    })
   }
   
   initCanvasLayer()

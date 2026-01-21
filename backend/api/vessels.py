@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Query
 from datetime import datetime
 from typing import Optional
-from models.vessel import VesselPosition, VesselsResponse, VesselDetails, TrajectoryPoint, AnomalyDetail
+from models.vessel import VesselPosition, VesselsResponse, VesselDetails, TrajectoryPoint, AnomalyDetail, VesselSummary, VesselsSummaryResponse
 from services.redis_service import redis_service
 from services.vessel_api import vessel_api
 from services.ack_service import ack_service
@@ -16,12 +16,13 @@ if settings.demo_mode:
     from services.mock_data import mock_generator
 
 
-@router.get("", response_model=VesselsResponse)
+@router.get("", response_model=VesselsResponse | VesselsSummaryResponse)
 async def get_vessels(
     vessel_type: Optional[str] = Query(None, description="Filter by vessel type"),
     min_speed: Optional[float] = Query(None, description="Minimum speed (knots)"),
     max_speed: Optional[float] = Query(None, description="Maximum speed (knots)"),
-    anomaly_only: bool = Query(False, description="Only anomalous vessels")
+    anomaly_only: bool = Query(False, description="Only anomalous vessels"),
+    summary: bool = Query(False, description="Brief summary for fast loading")
 ):
     """
     Get all active vessels with optional filters.
@@ -31,11 +32,20 @@ async def get_vessels(
         if settings.demo_mode:
             vessels_data = [v.model_dump() for v in mock_generator.get_vessels()]
         else:
-            vessels_data = await redis_service.get_all_vessels()
+            if summary:
+                vessels_data = await redis_service.get_vessels_summary()
+            else:
+                vessels_data = await redis_service.get_all_vessels()
         
-        # Add acknowledgement status to each vessel
-        for vessel in vessels_data:
-            vessel['acknowledged'] = await ack_service.is_acknowledged(vessel['mmsi'])
+        # Batch fetch all acknowledged MMSIs for efficiency
+        if settings.demo_mode:
+            # For demo mode, we still use the old way as mock_generator is simple
+            for vessel in vessels_data:
+                vessel['acknowledged'] = await ack_service.is_acknowledged(vessel['mmsi'])
+        else:
+            acknowledged_mmsis = await redis_service.get_all_acknowledged_mmsis()
+            for vessel in vessels_data:
+                vessel['acknowledged'] = vessel['mmsi'] in acknowledged_mmsis
         
         # Apply filters
         filtered = vessels_data
@@ -52,11 +62,18 @@ async def get_vessels(
         if anomaly_only:
             filtered = [v for v in filtered if v.get("is_anomaly", False)]
         
-        return VesselsResponse(
-            vessels=[VesselPosition(**v) for v in filtered],
-            total=len(filtered),
-            timestamp=datetime.utcnow()
-        )
+        if summary:
+            return VesselsSummaryResponse(
+                vessels=[VesselSummary(**v) for v in filtered],
+                total=len(filtered),
+                timestamp=datetime.utcnow()
+            )
+        else:
+            return VesselsResponse(
+                vessels=[VesselPosition(**v) for v in filtered],
+                total=len(filtered),
+                timestamp=datetime.utcnow()
+            )
         
     except Exception as e:
         logger.error(f"Error fetching vessels: {e}")

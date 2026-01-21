@@ -6,7 +6,7 @@ Handles all Redis operations for vessel positions and caching.
 
 import redis.asyncio as aioredis
 import json
-from typing import Optional, List
+from typing import Optional, List, Set
 from datetime import datetime, timedelta
 from config import settings
 from models.vessel import VesselPosition, TrajectoryPoint, AnomalyDetail
@@ -91,6 +91,25 @@ class RedisService:
                     continue
         
         return vessels
+
+    async def get_vessels_summary(self) -> List[dict]:
+        """
+        Get simplified vessel data for fast loading.
+        Includes only: mmsi, lat, lon, name, type, is_anomaly, anomaly_score.
+        """
+        vessels = await self.get_all_vessels()
+        summary = []
+        for v in vessels:
+            summary.append({
+                "mmsi": v.get("mmsi"),
+                "lat": v.get("lat"),
+                "lon": v.get("lon"),
+                "name": v.get("name"),
+                "type": v.get("type"),
+                "is_anomaly": v.get("is_anomaly", False),
+                "anomaly_score": v.get("anomaly_score", 0.0)
+            })
+        return summary
     
     # --- Trajectories ---
     
@@ -110,9 +129,16 @@ class RedisService:
         await self.redis.zremrangebyscore(key, 0, cutoff)
     
     async def get_trajectory(self, mmsi: int, hours: int = 24) -> List[dict]:
-        """Get vessel trajectory for last N hours."""
+        """Get vessel trajectory for last N hours (relative to latest point)."""
         key = f"vessel:trajectory:{mmsi}"
-        cutoff = (datetime.utcnow() - timedelta(hours=hours)).timestamp()
+        
+        # 1. Get latest point score to handle historical data
+        latest = await self.redis.zrange(key, -1, -1, withscores=True)
+        if latest:
+            max_ts = latest[0][1]
+            cutoff = max_ts - (hours * 3600)
+        else:
+            cutoff = (datetime.utcnow() - timedelta(hours=hours)).timestamp()
         
         points = await self.redis.zrangebyscore(key, cutoff, "+inf")
         # Limit to last 2000 points to prevent payload explosion
@@ -143,9 +169,10 @@ class RedisService:
             {json.dumps(anomaly_data): score}
         )
         
-        # Keep only last 7 days
-        cutoff = (datetime.utcnow() - timedelta(days=7)).timestamp()
-        await self.redis.zremrangebyscore("anomalies:recent", 0, cutoff)
+        # Cleanup global (keep a healthy buffer, e.g. last 10000 anomalies or 7 days)
+        # For historical data, absolute time cleanup is dangerous. 
+        # Better: keep last 10000 or use a very large sliding window if not specified.
+        await self.redis.zremrangebyrank("anomalies:recent", 0, -10001)
 
         # Also store in vessel-specific history
         vessel_key = f"vessel:anomalies:{anomaly_data['mmsi']}"
@@ -190,8 +217,17 @@ class RedisService:
                 return False
     
     async def get_recent_anomalies(self, hours: int = 24, limit: int = 100) -> List[dict]:
-        """Get recent anomalies."""
-        cutoff = (datetime.utcnow() - timedelta(hours=hours)).timestamp()
+        """Get recent anomalies (relative to latest anomaly or absolute time)."""
+        # 1. Get the latest anomaly timestamp to handle historical datasets
+        latest = await self.redis.zrange("anomalies:recent", -1, -1, withscores=True)
+        
+        if latest:
+            # Relative window based on data
+            max_ts = latest[0][1]
+            cutoff = max_ts - (hours * 3600)
+        else:
+            # Fallback to absolute time
+            cutoff = (datetime.utcnow() - timedelta(hours=hours)).timestamp()
         
         results = await self.redis.zrangebyscore(
             "anomalies:recent",
@@ -263,6 +299,11 @@ class RedisService:
             return datetime.fromisoformat(timestamp_str)
         return None
     
+    async def get_all_acknowledged_mmsis(self) -> Set[int]:
+        """Get set of all acknowledged MMSIs."""
+        mmsis = await self.redis.smembers("vessels:all_acknowledged")
+        return {int(m) for m in mmsis}
+
     async def get_all_acknowledged(self) -> List[dict]:
         """Get all acknowledged vessels."""
         mmsis = await self.redis.smembers("vessels:all_acknowledged")

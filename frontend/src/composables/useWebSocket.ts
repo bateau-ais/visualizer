@@ -57,9 +57,10 @@ export function useWebSocket() {
     function handleMessage(data: any) {
         if (data.type === 'vessel_update') {
             vesselsStore.updateVessel(data.data)
-        } else if (data.type === 'anomaly_detection') {
-            // Trigger refetch (composable doesn't have direct store methods)
-            // The stores will auto-refresh via their own polling
+        } else if (data.type === 'anomaly_detected') {
+            // Update anomalies list and stats
+            anomaliesStore.addAnomaly(data.data)
+            anomaliesStore.fetchDashboardStats()
         }
     }
 

@@ -1,15 +1,28 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { onMounted, onUnmounted, computed } from 'vue'
 import { useAnomaliesStore } from '@/stores/anomalies'
+import { useVesselsStore } from '@/stores/vessels'
 import Card from '@/components/ui/Card.vue'
 import StatsCard from '@/components/dashboard/StatsCard.vue'
 import { Ship, AlertTriangle, TrendingUp, AlertCircle } from 'lucide-vue-next'
+import { useWebSocket } from '@/composables/useWebSocket'
 
 const anomaliesStore = useAnomaliesStore()
+const vesselsStore = useVesselsStore()
+const { connect, disconnect } = useWebSocket()
 
 onMounted(async () => {
   await anomaliesStore.fetchDashboardStats()
   await anomaliesStore.fetchAnomalies(24, 0)
+  // Also fetch vessels summary to ensure stats or other components have current vessel data if needed
+  await vesselsStore.fetchVesselsSummary()
+  
+  // Real-time updates
+  connect()
+})
+
+onUnmounted(() => {
+  disconnect()
 })
 
 // ECharts options for timeline - now using real data
@@ -61,19 +74,31 @@ const timelineOptions = computed(() => {
 // Pie chart for anomaly types - now using real data
 const pieOptions = computed(() => {
   // Transform anomaly types data into pie chart format
+  // Enhanced color palette for distinct anomaly types
+  // Ultra-distinct color palette for maritime anomaly types
   const typeColors: Record<string, string> = {
-    'speed': '#ff6b35',
-    'heading': '#00d4ff',
-    'course': '#00d4ff',
-    'spoofing': '#ef4444',
-    'position': '#fbbf24',
-    'default': '#6b7280'
+    'speed': '#FF4D00',    // Vivid Orange
+    'heading': '#00EAFF',  // Electric Cyan
+    'course': '#007CFF',   // Modern Blue
+    'spoofing': '#FF0055', // Shocking Pink/Red
+    'position': '#2DFF00', // Neon Green
+    'draft': '#7000FF',    // Deep Purple
+    'length': '#FFD000',   // Bright Yellow
+    'width': '#00FFAA',    // Seafoam Green
+    'gap': '#FF00D4',      // Magenta
+    'time': '#5500FF'      // Electric Indigo
   }
   
+  // High contrast rotating palette for unknown types
+  const extraColors = ['#FFBF00', '#00FFBF', '#BF00FF', '#FF00BF', '#00BFFF']
+  
   const typesData = Object.entries(anomaliesStore.anomaliesByType)
-    .map(([name, value]) => {
-      let color = typeColors.default
+    .sort((a, b) => b[1] - a[1]) // Sort by count first
+    .map(([name, value], index) => {
+      let color = ''
       const nameLower = name.toLowerCase()
+      
+      // Try to find a specific color based on keyword
       for (const [key, col] of Object.entries(typeColors)) {
         if (nameLower.includes(key)) {
           color = col
@@ -81,10 +106,14 @@ const pieOptions = computed(() => {
         }
       }
       
+      // Fallback to rotating extra palette if no keyword match
+      if (!color) {
+        color = extraColors[index % extraColors.length]
+      }
+      
       return { value, name, itemStyle: { color } }
     })
-    .sort((a, b) => b.value - a.value)
-    .slice(0, 6) // Top 6 types
+    .slice(0, 10) // Show top 10 instead of 6 for better distribution
   
   return {
     darkMode: true,
@@ -145,7 +174,7 @@ function navigateToVessel(mmsi: number) {
     <!-- Stats Grid -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
       <StatsCard
-        :value="anomaliesStore.dashboardStats?.vessels_active || 0"
+        :value="vesselsStore.vesselsCount"
         label="Active Vessels"
         :icon="Ship"
         variant="default"
@@ -166,7 +195,7 @@ function navigateToVessel(mmsi: number) {
       />
       
       <StatsCard
-        :value="anomaliesStore.dashboardStats?.critical_count || 0"
+        :value="vesselsStore.criticalCount"
         label="Critical Alerts"
         :icon="AlertCircle"
         variant="danger"
@@ -212,7 +241,7 @@ function navigateToVessel(mmsi: number) {
           </thead>
           <tbody>
             <tr
-              v-for="anomaly in anomaliesStore.recentAnomalies"
+              v-for="anomaly in anomaliesStore.recentAnomalies.filter(a => a.score > 0.05)"
               :key="anomaly.data_id"
               class="border-b border-gray-700/50 hover:bg-bg-tertiary/30 transition-colors"
             >
@@ -243,10 +272,10 @@ function navigateToVessel(mmsi: number) {
                   :class="[
                     'text-sm font-semibold',
                     anomaly.score >= 0.8 ? 'text-vessel-danger' : 
-                    anomaly.score >= 0.5 ? 'text-vessel-warning' : 'text-vessel-normal'
+                    anomaly.score >= 0.5 ? 'text-vessel-warning' : 'text-text-muted'
                   ]"
                 >
-                  {{ (anomaly.score * 100).toFixed(0) }}%
+                  {{ Math.max(1, Math.round(anomaly.score * 100)) }}%
                 </span>
               </td>
               <td class="py-3 px-4 text-right">

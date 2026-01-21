@@ -1,4 +1,4 @@
-import { ref, onUnmounted, type Ref } from 'vue'
+import { ref, shallowRef, onUnmounted } from 'vue'
 import L from 'leaflet'
 import type { Vessel } from '@/types/vessel'
 import { getVesselStatusColor } from '@/utils/colors'
@@ -13,11 +13,12 @@ interface VesselRenderCache {
 }
 
 export function useCanvasMap(containerId: string) {
-    const map: Ref<L.Map | null> = ref(null)
-    const canvasLayer: Ref<VesselCanvasLayer | null> = ref(null)
+    // USE shallowRef for Leaflet objects to prevent Proxy-related crashes
+    const map = shallowRef<L.Map | null>(null)
+    const canvasLayer = shallowRef<VesselCanvasLayer | null>(null)
     const vesselCache = new Map<number, VesselRenderCache>()
     const visibleVessels = ref<Set<number>>(new Set())
-    const trajectoryLayer: Ref<L.Polyline | null> = ref(null)
+    const trajectoryLayer = shallowRef<L.Polyline | null>(null)
 
     // Canvas renderer with custom vessel drawing
     class VesselCanvasLayer extends L.Layer {
@@ -97,8 +98,12 @@ export function useCanvasMap(containerId: string) {
         redraw = () => {
             if (!this.ctx || !this.canvas || !map.value) return
 
+            const zoom = map.value.getZoom()
+            const isDetailed = zoom >= 11
+            const ctx = this.ctx
+
             // Clear canvas
-            this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
+            ctx.clearRect(0, 0, this.canvas.width, this.canvas.height)
 
             // Get current map bounds for virtualization
             this.bounds = map.value.getBounds()
@@ -110,25 +115,91 @@ export function useCanvasMap(containerId: string) {
 
             // Update visible vessels set
             visibleVessels.value.clear()
-            filteredVessels.forEach(v => visibleVessels.value.add(v.mmsi))
+            vesselCache.clear() // Clear cache before rebuild
 
-            // Draw each visible vessel
-            // Sort by latitude to handle overlap occlusion
-            filteredVessels.sort((a, b) => b.lat - a.lat).forEach(vessel => {
-                this.drawVessel(vessel)
+            // Group by color for batching
+            const groupedVessels = new Map<string, Vessel[]>()
+            const anomalous: Vessel[] = []
+
+            const vesselsStore = useVesselsStore()
+            const visibleLevels = vesselsStore.visibleLevels
+
+            for (const vessel of filteredVessels) {
+                // Visibility Filtering logic
+                let level: 'normal' | 'warning' | 'critical' = 'normal'
+                if (vessel.is_anomaly && !vessel.acknowledged) {
+                    if (vessel.anomaly_score >= 0.8) level = 'critical'
+                    else if (vessel.anomaly_score >= 0.5) level = 'warning'
+                }
+
+                if (!visibleLevels.has(level)) continue
+
+                visibleVessels.value.add(vessel.mmsi)
+
+                // Prioritize anomaly status for grouping/ordering
+                if (vessel.is_anomaly && !vessel.acknowledged) {
+                    anomalous.push(vessel)
+                } else {
+                    const color = getVesselStatusColor(vessel.anomaly_score, vessel.is_anomaly)
+                    if (!groupedVessels.has(color)) groupedVessels.set(color, [])
+                    groupedVessels.get(color)!.push(vessel)
+                }
+            }
+
+            // Draw Normal/Stable vessels in batches (lower priority)
+            groupedVessels.forEach((vessels, color) => {
+                ctx.fillStyle = color
+                for (const vessel of vessels) {
+                    this.drawVesselSimplified(vessel, color, isDetailed)
+                }
             })
+
+            // Draw Anomalies (higher priority, always detailed)
+            for (const vessel of anomalous) {
+                const color = getVesselStatusColor(vessel.anomaly_score, vessel.is_anomaly)
+                this.drawVesselDetailed(vessel, color, true)
+            }
+
+            // Draw selected/hovered on top
+            if (this.selectedMMSI || this.hoveredMMSI) {
+                const special = filteredVessels.filter(v =>
+                    v.mmsi === this.selectedMMSI || v.mmsi === this.hoveredMMSI
+                )
+                for (const vessel of special) {
+                    const color = getVesselStatusColor(vessel.anomaly_score, vessel.is_anomaly)
+                    this.drawVesselDetailed(vessel, color, false)
+                }
+            }
         }
 
-        private drawVessel(vessel: Vessel) {
-            if (!this.ctx || !map.value) return
+        private drawVesselSimplified(vessel: Vessel, color: string, isDetailed: boolean) {
+            if (!map.value || !this.ctx) return
+            const point = map.value.latLngToContainerPoint([vessel.lat, vessel.lon])
 
+            // Re-populate cache for hit detection
+            vesselCache.set(vessel.mmsi, {
+                x: point.x,
+                y: point.y,
+                heading: vessel.heading || vessel.cog || 0,
+                color,
+                isAnomaly: vessel.is_anomaly,
+                acknowledged: vessel.acknowledged || false
+            })
+
+            if (isDetailed) {
+                this.drawTriangle(point.x, point.y, vessel.heading || vessel.cog || 0, color)
+            } else {
+                this.ctx.fillRect(point.x - 2, point.y - 2, 4, 4)
+            }
+        }
+
+        private drawVesselDetailed(vessel: Vessel, color: string, isAnomalyFlash: boolean) {
+            if (!map.value || !this.ctx) return
             const point = map.value.latLngToContainerPoint([vessel.lat, vessel.lon])
             const heading = vessel.heading || vessel.cog || 0
-            const color = getVesselStatusColor(vessel.anomaly_score, vessel.is_anomaly)
             const isSelected = this.selectedMMSI === vessel.mmsi
             const isHovered = this.hoveredMMSI === vessel.mmsi
 
-            // Cache vessel render state for hit detection
             vesselCache.set(vessel.mmsi, {
                 x: point.x,
                 y: point.y,
@@ -141,19 +212,13 @@ export function useCanvasMap(containerId: string) {
             this.ctx.save()
             this.ctx.translate(point.x, point.y)
 
-            // Draw selection indicator (WHITE CIRCLE)
             if (isSelected) {
                 this.ctx.beginPath()
                 this.ctx.arc(0, 0, 22, 0, Math.PI * 2)
                 this.ctx.strokeStyle = '#ffffff'
                 this.ctx.lineWidth = 2
-                this.ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
-                this.ctx.shadowBlur = 4
                 this.ctx.stroke()
-            }
-
-            // Draw hover indicator
-            if (isHovered && !isSelected) {
+            } else if (isHovered) {
                 this.ctx.beginPath()
                 this.ctx.arc(0, 0, 18, 0, Math.PI * 2)
                 this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'
@@ -161,10 +226,7 @@ export function useCanvasMap(containerId: string) {
                 this.ctx.stroke()
             }
 
-            this.ctx.rotate((heading * Math.PI) / 180)
-
-            // Draw glow for anomalies
-            if (vessel.is_anomaly && !vessel.acknowledged) {
+            if (isAnomalyFlash) {
                 this.ctx.beginPath()
                 this.ctx.arc(0, 0, 16, 0, Math.PI * 2)
                 this.ctx.fillStyle = color
@@ -173,21 +235,9 @@ export function useCanvasMap(containerId: string) {
                 this.ctx.globalAlpha = 1.0
             }
 
-            // Draw vessel triangle
-            this.ctx.beginPath()
-            this.ctx.moveTo(0, -12)
-            this.ctx.lineTo(-6, 8)
-            this.ctx.lineTo(6, 8)
-            this.ctx.closePath()
+            this.ctx.rotate((heading * Math.PI) / 180)
+            this.drawTriangleShape(color)
 
-            this.ctx.fillStyle = color
-            this.ctx.fill()
-
-            this.ctx.strokeStyle = '#ffffff'
-            this.ctx.lineWidth = 1.5
-            this.ctx.stroke()
-
-            // Draw alert indicator for unacknowledged anomalies
             if (vessel.is_anomaly && !vessel.acknowledged) {
                 this.ctx.rotate(-(heading * Math.PI) / 180)
                 this.ctx.beginPath()
@@ -200,6 +250,29 @@ export function useCanvasMap(containerId: string) {
             }
 
             this.ctx.restore()
+        }
+
+        private drawTriangle(x: number, y: number, heading: number, color: string) {
+            if (!this.ctx) return
+            this.ctx.save()
+            this.ctx.translate(x, y)
+            this.ctx.rotate((heading * Math.PI) / 180)
+            this.drawTriangleShape(color)
+            this.ctx.restore()
+        }
+
+        private drawTriangleShape(color: string) {
+            if (!this.ctx) return
+            this.ctx.beginPath()
+            this.ctx.moveTo(0, -12)
+            this.ctx.lineTo(-6, 8)
+            this.ctx.lineTo(6, 8)
+            this.ctx.closePath()
+            this.ctx.fillStyle = color
+            this.ctx.fill()
+            this.ctx.strokeStyle = '#ffffff'
+            this.ctx.lineWidth = 1.5
+            this.ctx.stroke()
         }
 
         // Public method to find a vessel at a specific container point

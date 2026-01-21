@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+aimport { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Vessel, VesselFilter } from '@/types/vessel'
 import api from '@/utils/api'
@@ -11,6 +11,12 @@ export const useVesselsStore = defineStore('vessels', () => {
     const selectedVessel = ref<Vessel | null>(null)
     const loading = ref(false)
     const error = ref<string | null>(null)
+    const lastUpdate = ref(Date.now())w
+    const dataLevel = ref<'none' | 'summary' | 'full'>('none')
+
+    // Map State (to persist view between navigations)
+    const mapCenter = ref<[number, number]>([48.8566, 2.3522])
+    const mapZoom = ref(6)
 
     // Filters
     const filters = ref<VesselFilter>({
@@ -21,29 +27,36 @@ export const useVesselsStore = defineStore('vessels', () => {
         period: '24h'
     })
 
+    const visibleLevels = ref<Set<'normal' | 'warning' | 'critical'>>(new Set(['normal', 'warning', 'critical']))
+
     // Batching logic
     const pendingUpdates = new Map<number, Vessel>()
     let flushTimer: number | null = null
 
     // Computed
     const vesselsCount = computed(() => vessels.value.length)
-    const anomalousVessels = computed(() =>
-        vessels.value.filter(v => v.is_anomaly)
-    )
-    const anomalyCount = computed(() => anomalousVessels.value.length)
+    // Aggregated Stats (to avoid multiple filters on 10k+ arrays)
+    const anomalyCount = ref(0)
+    const criticalCount = ref(0)
+    const warningCount = ref(0)
 
-    // Split based on score thresholds (matching colors.ts)
-    // Critical: score >= 0.8
-    const criticalVessels = computed(() =>
-        anomalousVessels.value.filter(v => v.anomaly_score >= 0.8)
-    )
-    const criticalCount = computed(() => criticalVessels.value.length)
+    function updateStats() {
+        let aCount = 0
+        let cCount = 0
+        let wCount = 0
 
-    // Warning: 0.5 <= score < 0.8
-    const warningVessels = computed(() =>
-        anomalousVessels.value.filter(v => v.anomaly_score >= 0.5 && v.anomaly_score < 0.8)
-    )
-    const warningCount = computed(() => warningVessels.value.length)
+        for (const v of vessels.value) {
+            if (v.is_anomaly) {
+                aCount++
+                if (v.anomaly_score >= 0.8) cCount++
+                else if (v.anomaly_score >= 0.5) wCount++
+            }
+        }
+
+        anomalyCount.value = aCount
+        criticalCount.value = cCount
+        warningCount.value = wCount
+    }
 
     // Helper to rebuild index map
     function rebuildIndexMap() {
@@ -54,7 +67,12 @@ export const useVesselsStore = defineStore('vessels', () => {
     }
 
     // Actions
-    async function fetchVessels() {
+    async function fetchVessels(force = false) {
+        // Skip only if already have FULL data and not forced
+        if (!force && dataLevel.value === 'full' && vessels.value.length > 0) {
+            return
+        }
+
         loading.value = true
         error.value = null
 
@@ -73,9 +91,38 @@ export const useVesselsStore = defineStore('vessels', () => {
             const response = await api.get(`/vessels?${params}`)
             vessels.value = response.data.vessels
             rebuildIndexMap()
+            updateStats()
+            dataLevel.value = 'full'
+            lastUpdate.value = Date.now()
         } catch (err: any) {
             error.value = err.message
             console.error('Error fetching vessels:', err)
+        } finally {
+            loading.value = false
+        }
+    }
+
+    async function fetchVesselsSummary() {
+        loading.value = true
+        error.value = null
+
+        try {
+            const params = new URLSearchParams()
+            params.append('summary', 'true')
+
+            if (filters.value.types.length > 0) {
+                params.append('vessel_type', filters.value.types.join(','))
+            }
+
+            const response = await api.get(`/vessels?${params}`)
+            // Cast VesselSummary[] to Vessel[] as it is a subset
+            vessels.value = response.data.vessels
+            rebuildIndexMap()
+            updateStats()
+            dataLevel.value = 'summary'
+        } catch (err: any) {
+            error.value = err.message
+            console.error('Error fetching vessels summary:', err)
         } finally {
             loading.value = false
         }
@@ -142,6 +189,8 @@ export const useVesselsStore = defineStore('vessels', () => {
 
         pendingUpdates.clear()
         flushTimer = null
+        updateStats()
+        lastUpdate.value = Date.now()
     }
 
     function updateVessel(vesselData: Vessel) {
@@ -213,21 +262,26 @@ export const useVesselsStore = defineStore('vessels', () => {
         loading,
         error,
         filters,
+        mapCenter,
+        mapZoom,
 
-        // Computed
+        // Computed / Ref
         vesselsCount,
-        anomalousVessels,
         anomalyCount,
         criticalCount,
         warningCount,
 
         // Actions
         fetchVessels,
+        fetchVesselsSummary,
         fetchVesselDetails,
         updateVessel,
         selectVessel,
         setFilters,
         acknowledgeVessel,
-        searchVessels
+        searchVessels,
+        lastUpdate,
+        dataLevel,
+        visibleLevels
     }
 })

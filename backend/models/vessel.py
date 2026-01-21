@@ -24,7 +24,19 @@ class VesselPosition(BaseModel):
     timestamp: datetime
     anomaly_score: float = 0.0
     is_anomaly: bool = False
-    status: Optional[str] = None
+    status: Optional[str | int] = None
+    acknowledged: bool = False
+
+
+class VesselSummary(BaseModel):
+    """Simplified vessel data for fast loading."""
+    mmsi: int
+    name: Optional[str] = None
+    type: str = "unknown"
+    lat: float
+    lon: float
+    is_anomaly: bool = False
+    anomaly_score: float = 0.0
     acknowledged: bool = False
 
 
@@ -64,5 +76,12 @@ class VesselDetails(VesselPosition):
 class VesselsResponse(BaseModel):
     """Response for GET /vessels."""
     vessels: list[VesselPosition]
+    total: int
+    timestamp: datetime
+
+
+class VesselsSummaryResponse(BaseModel):
+    """Response for GET /vessels?summary=true."""
+    vessels: list[VesselSummary]
     total: int
     timestamp: datetime

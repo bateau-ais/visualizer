@@ -181,10 +181,10 @@ function viewAllNotifications() {
         <div 
           v-for="notification in unreadNotifications.slice(0, 5)" 
           :key="notification.data_id"
-          class="p-4 hover:bg-bg-tertiary/50 transition-colors cursor-pointer"
+          class="p-4 hover:bg-bg-tertiary/50 transition-colors cursor-pointer group relative"
           @click="navigateToVessel(notification.mmsi)"
         >
-          <div class="flex items-start gap-3">
+          <div class="flex items-start gap-3 pr-6">
             <div class="w-2 h-2 rounded-full bg-accent-danger mt-1.5 shrink-0"></div>
             <div>
               <p class="text-sm font-medium text-text-primary">
@@ -198,6 +198,15 @@ function viewAllNotifications() {
               </p>
             </div>
           </div>
+          
+          <!-- Dismiss Button -->
+          <button 
+            @click.stop="store.dismissNotification(notification.data_id)"
+            class="absolute top-4 right-4 p-1 text-text-muted hover:text-text-primary opacity-0 group-hover:opacity-100 transition-opacity"
+            title="Dismiss"
+          >
+            <X class="w-3 h-3" />
+          </button>
         </div>
       </div>
       

@@ -314,41 +314,79 @@ async function acknowledge() {
         </div>
       </Card>
       
-      <!-- Anomaly History (if anomaly detected) -->
-      <Card v-if="vessel.is_anomaly && vessel.anomalies && vessel.anomalies.length > 0" title="Anomaly History">
+      <!-- Anomaly History -->
+      <Card v-if="vessel.anomalies && vessel.anomalies.length > 0" title="Anomaly History">
         <p class="text-xs text-text-muted mb-4">
           Detailed list of all anomalies detected for this vessel. 
           <a href="/docs/anomalies" class="text-accent-primary hover:underline" target="_blank">Learn more about anomaly types →</a>
         </p>
         
-        <div class="space-y-3">
+        <div class="space-y-4">
           <div 
-            v-for="(anomaly, index) in vessel.anomalies.slice(0, 10)" 
+            v-for="(anomaly, index) in vessel.anomalies" 
             :key="index"
-            class="p-3 bg-bg-tertiary rounded-lg border border-gray-700"
+            class="relative pl-6 border-l-2"
+            :class="[
+              anomaly.score >= 0.8 ? 'border-accent-danger/50' : 
+              anomaly.score >= 0.5 ? 'border-accent-warning/50' : 'border-gray-700'
+            ]"
           >
-            <div class="flex items-start justify-between mb-2">
-              <div class="flex-1">
-                <div class="flex items-center gap-2 mb-1">
-                  <span class="text-xs text-text-muted">
-                    {{ formatDateTime(anomaly.timestamp) }}
-                  </span>
+            <!-- Timeline Dot -->
+            <div 
+              class="absolute -left-[9px] top-0 w-4 h-4 rounded-full border-2 bg-bg-secondary"
+              :class="[
+                anomaly.score >= 0.8 ? 'border-accent-danger' : 
+                anomaly.score >= 0.5 ? 'border-accent-warning' : 'border-gray-700'
+              ]"
+            ></div>
+
+            <div class="bg-bg-tertiary rounded-lg border border-gray-700 p-4 transition-all hover:border-gray-600">
+              <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-3 mb-3">
+                <div>
+                  <div class="flex items-center gap-2 mb-1">
+                    <span class="text-xs font-semibold text-text-primary">
+                      {{ formatDateTime(anomaly.timestamp) }}
+                    </span>
+                    <span class="text-[10px] text-text-muted uppercase tracking-wider">
+                      ({{ formatRelativeTime(anomaly.timestamp) }})
+                    </span>
+                  </div>
+                  
+                  <div class="flex flex-wrap gap-2 mt-2">
+                    <AnomalyReasons :reasons="anomaly.reasons" :maxDisplay="10" />
+                  </div>
+                </div>
+
+                <div class="flex flex-col items-end gap-1">
                   <Badge 
                     :variant="anomaly.score >= 0.8 ? 'danger' : anomaly.score >= 0.5 ? 'warning' : 'default'" 
                     size="sm"
                   >
-                    {{ (anomaly.score * 100).toFixed(0) }}% confidence
+                    Score: {{ (anomaly.score * 100).toFixed(0) }}%
                   </Badge>
+                  <span v-if="anomaly.confidence" class="text-[10px] text-text-muted">
+                    Confidence: {{ (anomaly.confidence * 100).toFixed(0) }}%
+                  </span>
                 </div>
-                
-                <AnomalyReasons :reasons="anomaly.reasons" :maxDisplay="5" />
-                
-                <p v-if="anomaly.details" class="text-xs text-text-secondary mt-2">
-                  {{ anomaly.details }}
-                </p>
+              </div>
+              
+              <div v-if="anomaly.details" class="text-sm text-text-secondary border-t border-gray-700 pt-3 mt-3">
+                {{ anomaly.details }}
+              </div>
+
+              <!-- Location at time of anomaly -->
+              <div v-if="anomaly.lat && anomaly.lon" class="mt-3 flex items-center gap-1.5 text-xs text-text-muted">
+                <MapPin class="w-3 h-3" />
+                <span>{{ formatCoordinates(anomaly.lat, anomaly.lon) }}</span>
               </div>
             </div>
           </div>
+        </div>
+
+        <!-- Empty state if it was somehow empty -->
+        <div v-if="vessel.anomalies.length === 0" class="text-center py-8">
+          <CheckCircle class="w-12 h-12 text-accent-success mx-auto mb-3 opacity-50" />
+          <p class="text-text-secondary">No historical anomalies found for this vessel.</p>
         </div>
       </Card>
       

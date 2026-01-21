@@ -7,19 +7,20 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 export const useNotificationStore = defineStore('notifications', {
     state: () => ({
         notifications: [] as AnomalyEvent[],
+        dismissedIds: new Set<string>(), // Local dismissal for the bell
         loading: false,
         error: null as string | null
     }),
 
     getters: {
-        // Unread (unacknowledged) notifications for the popup/badge
+        // Unread (unacknowledged AND not dismissed) notifications for the popup/badge
         unreadNotifications: (state) => {
-            return state.notifications.filter(n => !n.acknowledged)
+            return state.notifications.filter(n => !n.acknowledged && !state.dismissedIds.has(n.data_id))
         },
 
         // Count of unread notifications
-        unreadCount: (state) => {
-            return state.notifications.filter(n => !n.acknowledged).length
+        unreadCount: (state): number => {
+            return state.notifications.filter(n => !n.acknowledged && !state.dismissedIds.has(n.data_id)).length
         }
     },
 
@@ -48,10 +49,11 @@ export const useNotificationStore = defineStore('notifications', {
                 await axios.post(`${API_URL}/api/vessels/${mmsi}/acknowledge`)
 
                 // Update local state immediately for UI responsiveness
-                const notification = this.notifications.find(n => n.mmsi === mmsi)
-                if (notification) {
-                    notification.acknowledged = true
-                }
+                this.notifications.forEach(n => {
+                    if (n.mmsi === mmsi) {
+                        n.acknowledged = true
+                    }
+                })
             } catch (err) {
                 console.error(`Failed to acknowledge vessel ${mmsi}:`, err)
                 throw err
@@ -60,10 +62,16 @@ export const useNotificationStore = defineStore('notifications', {
 
         // Update local state without API call (called from other components that already did the API call)
         markAsReadLocal(mmsi: number) {
-            const notification = this.notifications.find(n => n.mmsi === mmsi)
-            if (notification) {
-                notification.acknowledged = true
-            }
+            this.notifications.forEach(n => {
+                if (n.mmsi === mmsi) {
+                    n.acknowledged = true
+                }
+            })
+        },
+
+        // Dismiss a specific notification from the bell dropdown
+        dismissNotification(data_id: string) {
+            this.dismissedIds.add(data_id)
         },
 
         // Add new notification (from websocket)

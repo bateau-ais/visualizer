@@ -19,6 +19,17 @@ export interface Vessel {
     photo_url?: string
 }
 
+export interface VesselSummary {
+    mmsi: number
+    name?: string
+    type: string
+    lat: number
+    lon: number
+    is_anomaly: boolean
+    anomaly_score: number
+    acknowledged: boolean
+}
+
 export interface VesselDetails extends Vessel {
     dimensions?: {
         length: number
