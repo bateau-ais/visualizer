@@ -4,6 +4,7 @@ import { useVesselsStore } from '@/stores/vessels'
 import type { Vessel } from '@/types/vessel'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
+import AnomalyReasons from '@/components/ui/AnomalyReasons.vue'
 import { Navigation, Gauge, Ship, ExternalLink, CheckCircle } from 'lucide-vue-next'
 import { formatCoordinates, formatSpeed, formatCourse, getCardinalDirection } from '@/utils/format'
 
@@ -34,6 +35,26 @@ function viewDetails() {
   }
 }
 
+const vesselDetails = ref<any>(null)
+const anomalyReason = computed(() => {
+    if (!vesselDetails.value?.anomalies?.length) return null
+    // Get the most recent high score anomaly reason
+    const anomaly = vesselDetails.value.anomalies[0]
+    return anomaly.reasons && anomaly.reasons.length > 0 ? anomaly.reasons[0] : 'Unknown Anomaly'
+})
+
+import { onMounted } from 'vue'
+
+onMounted(async () => {
+    if (props.vessel.is_anomaly) {
+        try {
+            vesselDetails.value = await vesselsStore.fetchVesselDetails(props.vessel.mmsi)
+        } catch (e) {
+            console.error(e)
+        }
+    }
+})
+
 async function acknowledge() {
   acknowledging.value = true
   try {
@@ -59,8 +80,11 @@ async function acknowledge() {
       </div>
       
       <div class="flex items-center gap-2">
-        <Badge :variant="badgeVariant" :dot="showPulsing" size="sm" title="Confidence score (0-100%) based on statistical analysis">
-          {{ vessel.is_anomaly ? `Anomaly Score: ${(vessel.anomaly_score * 100).toFixed(0)}%` : 'Normal' }}
+        <Badge :variant="badgeVariant" :dot="showPulsing" size="sm">
+          <span v-if="vessel.is_anomaly">
+           {{ anomalyReason || 'Anomaly Detected' }}
+          </span>
+          <span v-else>Normal</span>
         </Badge>
         <Badge v-if="vessel.acknowledged" variant="success" size="sm">
           <CheckCircle class="w-3 h-3 mr-1" />
@@ -71,6 +95,16 @@ async function acknowledge() {
     
     <!-- Info Grid -->
     <div class="space-y-2 mb-4">
+      <!-- Anomaly Details (if anomaly detected) -->
+      <div v-if="vessel.is_anomaly && vesselDetails?.anomalies?.length" class="p-3 bg-bg-tertiary rounded-lg border border-accent-warning/20">
+        <p class="text-xs font-semibold text-text-muted mb-2">Detected Anomalies:</p>
+        <AnomalyReasons 
+          :reasons="vesselDetails.anomalies[0].reasons" 
+          :linkToDetails="true"
+          :maxDisplay="3"
+        />
+      </div>
+      
       <div class="flex items-start space-x-2">
         <Navigation class="w-4 h-4 text-accent-primary mt-0.5 flex-shrink-0" />
         <div class="flex-1 min-w-0">

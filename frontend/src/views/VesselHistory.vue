@@ -6,6 +6,7 @@ import { useMap } from '@/composables/useMap'
 import Card from '@/components/ui/Card.vue'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
+import AnomalyReasons from '@/components/ui/AnomalyReasons.vue'
 import { Ship, Navigation, Gauge, Clock, AlertTriangle, MapPin, CheckCircle } from 'lucide-vue-next'
 import { formatCoordinates, formatSpeed, formatCourse, formatRelativeTime, formatDateTime } from '@/utils/format'
 import L from 'leaflet'
@@ -308,6 +309,44 @@ async function acknowledge() {
             <div class="flex flex-wrap gap-2">
               <Badge variant="warning">High Priority</Badge>
               <Badge variant="warning">Requires Investigation</Badge>
+            </div>
+          </div>
+        </div>
+      </Card>
+      
+      <!-- Anomaly History (if anomaly detected) -->
+      <Card v-if="vessel.is_anomaly && vessel.anomalies && vessel.anomalies.length > 0" title="Anomaly History">
+        <p class="text-xs text-text-muted mb-4">
+          Detailed list of all anomalies detected for this vessel. 
+          <a href="/docs/anomalies" class="text-accent-primary hover:underline" target="_blank">Learn more about anomaly types →</a>
+        </p>
+        
+        <div class="space-y-3">
+          <div 
+            v-for="(anomaly, index) in vessel.anomalies.slice(0, 10)" 
+            :key="index"
+            class="p-3 bg-bg-tertiary rounded-lg border border-gray-700"
+          >
+            <div class="flex items-start justify-between mb-2">
+              <div class="flex-1">
+                <div class="flex items-center gap-2 mb-1">
+                  <span class="text-xs text-text-muted">
+                    {{ formatDateTime(anomaly.timestamp) }}
+                  </span>
+                  <Badge 
+                    :variant="anomaly.score >= 0.8 ? 'danger' : anomaly.score >= 0.5 ? 'warning' : 'default'" 
+                    size="sm"
+                  >
+                    {{ (anomaly.score * 100).toFixed(0) }}% confidence
+                  </Badge>
+                </div>
+                
+                <AnomalyReasons :reasons="anomaly.reasons" :maxDisplay="5" />
+                
+                <p v-if="anomaly.details" class="text-xs text-text-secondary mt-2">
+                  {{ anomaly.details }}
+                </p>
+              </div>
             </div>
           </div>
         </div>

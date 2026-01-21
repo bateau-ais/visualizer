@@ -14,7 +14,8 @@ const notificationCount = ref(0)
 const navigation = [
   { name: 'Dashboard', path: '/' },
   { name: 'Live Map', path: '/map' },
-  { name: 'Heatmap', path: '/heatmap' }
+  { name: 'Heatmap', path: '/heatmap' },
+  { name: 'Anomaly Guide', path: '/docs/anomalies' }
 ]
 
 function isActive(path: string) {

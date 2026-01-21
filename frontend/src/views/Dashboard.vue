@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { onMounted, computed } from 'vue'
 import { useAnomaliesStore } from '@/stores/anomalies'
 import Card from '@/components/ui/Card.vue'
 import StatsCard from '@/components/dashboard/StatsCard.vue'
@@ -12,86 +12,122 @@ onMounted(async () => {
   await anomaliesStore.fetchAnomalies(24, 0)
 })
 
-// ECharts options for timeline
-const timelineOptions = ref({
-  darkMode: true,
-  backgroundColor: 'transparent',
-  tooltip: {
-    trigger: 'axis',
-    backgroundColor: '#1e293b',
-    borderColor: '#374151',
-    textStyle: { color: '#f1f5f9' }
-  },
-  grid: {
-    left: '3%',
-    right: '4%',
-    bottom: '3%',
-    containLabel: true
-  },
-  xAxis: {
-    type: 'category',
-    data: ['00h', '04h', '08h', '12h', '16h', '20h', '24h'],
-    axisLine: { lineStyle: { color: '#374151' } },
-    axisLabel: { color: '#94a3b8' }
-  },
-  yAxis: {
-    type: 'value',
-    axisLine: { lineStyle: { color: '#374151' } },
-    axisLabel: { color: '#94a3b8' },
-    splitLine: { lineStyle: { color: '#374151', type: 'dashed' } }
-  },
-  series: [{
-    data: [12, 8, 15, 22, 18, 25, 19],
-    type: 'bar',
-    itemStyle: {
-      color: '#00d4ff',
-      borderRadius: [4, 4, 0, 0]
-    }
-  }]
-})
-
-// Pie chart for anomaly types
-const pieOptions = ref({
-  darkMode: true,
-  backgroundColor: 'transparent',
-  tooltip: {
-    trigger: 'item',
-    backgroundColor: '#1e293b',
-    borderColor: '#374151',
-    textStyle: { color: '#f1f5f9' }
-  },
-  legend: {
-    orient: 'vertical',
-    right: '10%',
-    top: 'center',
-    textStyle: { color: '#94a3b8' }
-  },
-  series: [{
-    type: 'pie',
-    radius: ['40%', '70%'],
-    avoidLabelOverlap: false,
-    label: {
-      show: false,
-      position: 'center'
-    },
-    emphasis: {
-      label: {
-        show: true,
-        fontSize: 20,
-        fontWeight: 'bold',
-        color: '#f1f5f9'
+// ECharts options for timeline - now using real data
+const timelineOptions = computed(() => {
+  const hourLabels = Array.from({ length: 24 }, (_, i) => `${i}h`)
+  
+  return {
+    darkMode: true,
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: '#1e293b',
+      borderColor: '#374151',
+      textStyle: { color: '#f1f5f9' },
+      formatter: (params: any) => {
+        const data = params[0]
+        return `${data.name}: ${data.value} anomal${data.value > 1 ? 'ies' : 'y'}`
       }
     },
-    labelLine: {
-      show: false
+    grid: {
+      left: '3%',
+      right: '4%',
+      bottom: '3%',
+      containLabel: true
     },
-    data: [
-      { value: 45, name: 'Speed', itemStyle: { color: '#ff6b35' } },
-      { value: 30, name: 'Heading', itemStyle: { color: '#00d4ff' } },
-      { value: 15, name: 'Spoofing', itemStyle: { color: '#ef4444' } },
-      { value: 10, name: 'Others', itemStyle: { color: '#6b7280' } }
-    ]
-  }]
+    xAxis: {
+      type: 'category',
+      data: hourLabels,
+      axisLine: { lineStyle: { color: '#374151' } },
+      axisLabel: { color: '#94a3b8', interval: 3 }
+    },
+    yAxis: {
+      type: 'value',
+      axisLine: { lineStyle: { color: '#374151' } },
+      axisLabel: { color: '#94a3b8' },
+      splitLine: { lineStyle: { color: '#374151', type: 'dashed' } }
+    },
+    series: [{
+      data: anomaliesStore.anomaliesByHour,
+      type: 'bar',
+      itemStyle: {
+        color: '#00d4ff',
+        borderRadius: [4, 4, 0, 0]
+      }
+    }]
+  }
+})
+
+// Pie chart for anomaly types - now using real data
+const pieOptions = computed(() => {
+  // Transform anomaly types data into pie chart format
+  const typeColors: Record<string, string> = {
+    'speed': '#ff6b35',
+    'heading': '#00d4ff',
+    'course': '#00d4ff',
+    'spoofing': '#ef4444',
+    'position': '#fbbf24',
+    'default': '#6b7280'
+  }
+  
+  const typesData = Object.entries(anomaliesStore.anomaliesByType)
+    .map(([name, value]) => {
+      let color = typeColors.default
+      const nameLower = name.toLowerCase()
+      for (const [key, col] of Object.entries(typeColors)) {
+        if (nameLower.includes(key)) {
+          color = col
+          break
+        }
+      }
+      
+      return { value, name, itemStyle: { color } }
+    })
+    .sort((a, b) => b.value - a.value)
+    .slice(0, 6) // Top 6 types
+  
+  return {
+    darkMode: true,
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: '#1e293b',
+      borderColor: '#374151',
+      textStyle: { color: '#f1f5f9' },
+      formatter: (params: any) => {
+        return `${params.name}: ${params.value} (${params.percent}%)`
+      }
+    },
+    legend: {
+      orient: 'vertical',
+      right: '10%',
+      top: 'center',
+      textStyle: { color: '#94a3b8' }
+    },
+    series: [{
+      type: 'pie',
+      radius: ['40%', '70%'],
+      avoidLabelOverlap: false,
+      label: {
+        show: false,
+        position: 'center'
+      },
+      emphasis: {
+        label: {
+          show: true,
+          fontSize: 20,
+          fontWeight: 'bold',
+          color: '#f1f5f9'
+        }
+      },
+      labelLine: {
+        show: false
+      },
+      data: typesData.length > 0 ? typesData : [
+        { value: 1, name: 'No data yet', itemStyle: { color: '#6b7280' } }
+      ]
+    }]
+  }
 })
 
 function navigateToVessel(mmsi: number) {

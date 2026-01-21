@@ -23,6 +23,37 @@ export const useAnomaliesStore = defineStore('anomalies', () => {
         anomalies.value.filter(a => a.score >= 0.8)
     )
 
+    const anomaliesByHour = computed(() => {
+        // Group anomalies by hour for the last 24 hours
+        const now = new Date()
+        const hourCounts = Array(24).fill(0)
+
+        anomalies.value.forEach(anomaly => {
+            const aTime = new Date(anomaly.timestamp)
+            const hoursAgo = Math.floor((now.getTime() - aTime.getTime()) / (1000 * 60 * 60))
+
+            if (hoursAgo >= 0 && hoursAgo < 24) {
+                hourCounts[23 - hoursAgo]++
+            }
+        })
+
+        return hourCounts
+    })
+
+    const anomaliesByType = computed(() => {
+        // Count anomalies by type (from reasons array)
+        const typeCounts: Record<string, number> = {}
+
+        anomalies.value.forEach(anomaly => {
+            anomaly.reasons.forEach(reason => {
+                const typeStr = String(reason)
+                typeCounts[typeStr] = (typeCounts[typeStr] || 0) + 1
+            })
+        })
+
+        return typeCounts
+    })
+
     // Actions
     async function fetchAnomalies(hours: number = 24, minScore: number = 0) {
         loading.value = true
@@ -87,6 +118,8 @@ export const useAnomaliesStore = defineStore('anomalies', () => {
         // Computed
         recentAnomalies,
         criticalAnomalies,
+        anomaliesByHour,
+        anomaliesByType,
 
         // Actions
         fetchAnomalies,

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, watch, createApp, ref } from 'vue'
-import { useMap } from '@/composables/useMap'
+import { useCanvasMap } from '@/composables/useCanvasMap'
 import { useVesselsStore } from '@/stores/vessels'
 import type { Vessel } from '@/types/vessel'
 import VesselPopup from './VesselPopup.vue'
@@ -19,24 +19,46 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const vesselsStore = useVesselsStore()
-const { map, markers, initMap, addVesselMarker, updateVesselPosition, removeVesselMarker, clearAllMarkers, setTrajectory, removeTrajectory, fitBounds } = useMap(props.containerId)
+const { map, initMap, initCanvasLayer, updateVessels, setTrajectory, removeTrajectory, fitBounds, getVisibleVessels } = useCanvasMap(props.containerId)
 
 onMounted(() => {
   initMap(props.center, props.zoom)
-  renderVessels()
+  initCanvasLayer(onVesselClick)
+  updateVessels(props.vessels)
 })
 
+// Optimized watch: only watch vessels length, not deep
 const renderRequest = ref<number | null>(null)
+const lastVesselHash = ref<string>('')
 
-watch(() => props.vessels, () => {
+function getVesselHash(vessels: Vessel[]): string {
+  // Create a simple hash from vessel count and first/last MMSIs
+  if (vessels.length === 0) return '0'
+  return `${vessels.length}-${vessels[0]?.mmsi}-${vessels[vessels.length - 1]?.mmsi}`
+}
+
+watch(() => props.vessels, (newVessels) => {
+  const newHash = getVesselHash(newVessels)
+  
+  // Skip if vessels haven't changed significantly
+  if (newHash === lastVesselHash.value && newVessels.length > 0) {
+    // Still update canvas for position/heading changes but throttle it
+    if (renderRequest.value) return
+  }
+  
+  lastVesselHash.value = newHash
+  
+  // Cancel any pending render
   if (renderRequest.value) {
     cancelAnimationFrame(renderRequest.value)
   }
+  
+  // Batch updates with requestAnimationFrame
   renderRequest.value = requestAnimationFrame(() => {
-    renderVessels()
+    updateVessels(newVessels)
     renderRequest.value = null
   })
-}, { deep: true }) // Re-enabled deep watch for reliability in demo
+})
 
 // Watch for selected vessel to draw trajectory
 watch(() => vesselsStore.selectedVessel, async (vessel) => {
@@ -57,31 +79,8 @@ watch(() => vesselsStore.selectedVessel, async (vessel) => {
   }
 }, { deep: true })
 
-function renderVessels() {
-  if (!map.value) return
-  
-  // Get current marker MMSIs
-  const currentMMSIs = new Set(Array.from(markers.value.keys()))
-  const vesselMMSIs = new Set(props.vessels.map(v => v.mmsi))
-  
-  // Add or update vessels
-  props.vessels.forEach(vessel => {
-    if (markers.value.has(vessel.mmsi)) {
-      // Update existing marker
-      updateVesselPosition(vessel)
-    } else {
-      // Add new marker
-      addVesselMarker(vessel, onVesselClick)
-    }
-  })
-  
-  // Remove vessels that are no longer present
-  currentMMSIs.forEach(mmsi => {
-    if (!vesselMMSIs.has(mmsi)) {
-      removeVesselMarker(mmsi)
-    }
-  })
-}
+// Canvas rendering is handled automatically by useCanvasMap
+// No need for manual renderVessels function
 
 function onVesselClick(vessel: Vessel) {
   if (!map.value) return
@@ -116,11 +115,12 @@ function onVesselClick(vessel: Vessel) {
   })
 }
 
-// Expose update method for parent components
+// Expose methods for parent components
 defineExpose({
-  updateVesselPosition,
+  updateVessels,
   fitBounds,
-  map
+  map,
+  getVisibleVessels
 })
 </script>
 

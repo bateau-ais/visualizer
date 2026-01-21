@@ -31,8 +31,8 @@ export function useMap(containerId: string) {
         return map.value
     }
 
-    // State tracking for optimization
-    const markerStates = new Map<number, { heading: number, is_anomaly: boolean, anomaly_score: number, lat: number, lon: number }>()
+    // State tracking for optimization - now includes acknowledged status
+    const markerStates = new Map<number, { heading: number, is_anomaly: boolean, anomaly_score: number, lat: number, lon: number, acknowledged: boolean }>()
 
     function createVesselIcon(vessel: Vessel): L.DivIcon {
         const color = getVesselStatusColor(vessel.anomaly_score, vessel.is_anomaly)
@@ -92,7 +92,8 @@ export function useMap(containerId: string) {
             is_anomaly: vessel.is_anomaly,
             anomaly_score: vessel.anomaly_score,
             lat: vessel.lat,
-            lon: vessel.lon
+            lon: vessel.lon,
+            acknowledged: vessel.acknowledged || false
         })
     }
 
@@ -101,25 +102,30 @@ export function useMap(containerId: string) {
         const prevState = markerStates.get(vessel.mmsi)
 
         if (marker && map.value) {
-            // Check position change
+            let positionChanged = false
+            let visualChanged = false
+
+            // Check position change (only update if moved significantly)
             if (!prevState || Math.abs(prevState.lat - vessel.lat) > 0.000001 || Math.abs(prevState.lon - vessel.lon) > 0.000001) {
                 marker.setLatLng([vessel.lat, vessel.lon])
+                positionChanged = true
             }
 
-            // Check visual change (heading, anomaly status/score)
+            // Check visual change (heading, anomaly status/score, acknowledged)
             const currentHeading = vessel.heading || vessel.cog || 0
             if (!prevState ||
-                Math.abs(prevState.heading - currentHeading) > 1.0 ||
+                Math.abs(prevState.heading - currentHeading) > 2.0 || // Increased threshold from 1.0 to 2.0 degrees to reduce updates
                 prevState.is_anomaly !== vessel.is_anomaly ||
-                prevState.anomaly_score !== vessel.anomaly_score) {
+                prevState.anomaly_score !== vessel.anomaly_score ||
+                prevState.acknowledged !== vessel.acknowledged) {
 
                 marker.setIcon(createVesselIcon(vessel))
+                visualChanged = true
             }
 
-            // Always update tooltip if data changed slightly? Maybe generic update is fine
-            // Only update content if significant changes to avoid HTML parsing overhead?
-            // For now, keep it simple, tooltip update is less expensive than Icon DOM thrashing
-            marker.setTooltipContent(`
+            // Only update tooltip if position or visual changed (avoid unnecessary HTML parsing)
+            if (positionChanged || visualChanged) {
+                marker.setTooltipContent(`
         <div class="text-xs">
           <strong>${vessel.name || 'Unknown'}</strong><br/>
           MMSI: ${vessel.mmsi}<br/>
@@ -127,17 +133,22 @@ export function useMap(containerId: string) {
           Course: ${Math.round(vessel.cog)}°
         </div>
       `)
+            }
 
-            // Update state
-            markerStates.set(vessel.mmsi, {
-                heading: currentHeading,
-                is_anomaly: vessel.is_anomaly,
-                anomaly_score: vessel.anomaly_score,
-                lat: vessel.lat,
-                lon: vessel.lon
-            })
+            // Update state only if something changed
+            if (positionChanged || visualChanged) {
+                markerStates.set(vessel.mmsi, {
+                    heading: currentHeading,
+                    is_anomaly: vessel.is_anomaly,
+                    anomaly_score: vessel.anomaly_score,
+                    lat: vessel.lat,
+                    lon: vessel.lon,
+                    acknowledged: vessel.acknowledged || false
+                })
+            }
 
         } else {
+            // Marker doesn't exist, create it
             addVesselMarker(vessel)
         }
     }

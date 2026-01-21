@@ -26,6 +26,12 @@ const router = createRouter({
             name: 'vessel-history',
             component: () => import('@/views/VesselHistory.vue'),
             meta: { title: 'Vessel History' }
+        },
+        {
+            path: '/docs/anomalies',
+            name: 'anomaly-docs',
+            component: () => import('@/views/AnomalyDocs.vue'),
+            meta: { title: 'Anomaly Guide' }
         }
     ]
 })
