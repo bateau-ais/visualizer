@@ -1,8 +1,6 @@
 import { defineStore } from 'pinia'
-import axios from 'axios'
+import api from '@/utils/api'
 import type { AnomalyEvent } from '@/types/anomalies'
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
 
 export const useNotificationStore = defineStore('notifications', {
     state: () => ({
@@ -29,7 +27,8 @@ export const useNotificationStore = defineStore('notifications', {
             this.loading = true
             try {
                 // Fetch last 24h of anomalies to populate notifications
-                const response = await axios.get(`${API_URL}/api/anomalies`, {
+                // Uses api instance: baseURL is '/api', so path is just '/anomalies'
+                const response = await api.get('/anomalies', {
                     params: {
                         hours: 24,
                         limit: 50
@@ -46,7 +45,7 @@ export const useNotificationStore = defineStore('notifications', {
 
         async acknowledge(mmsi: number) {
             try {
-                await axios.post(`${API_URL}/api/vessels/${mmsi}/acknowledge`)
+                await api.post(`/vessels/${mmsi}/acknowledge`)
 
                 // Update local state immediately for UI responsiveness
                 this.notifications.forEach(n => {

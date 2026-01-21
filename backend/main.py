@@ -17,6 +17,7 @@ from api import vessels, anomalies, websocket, auth as auth_api
 from services.redis_service import redis_service
 from services.nats_subscriber import nats_subscriber
 from auth import init_default_users
+from prometheus_fastapi_instrumentator import Instrumentator
 
 # Configure logging
 logging.basicConfig(
@@ -81,6 +82,9 @@ app = FastAPI(
               + (" [DEMO MODE]" if settings.demo_mode else ""),
     lifespan=lifespan
 )
+
+# Instrument Prometheus
+Instrumentator().instrument(app).expose(app)
 
 # Rate limiting middleware
 rate_limit_store = defaultdict(list)
