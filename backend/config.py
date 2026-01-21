@@ -36,7 +36,17 @@ class Settings(BaseSettings):
     marinetraffic_api_key: Optional[str] = None
     
     # CORS
-    cors_origins: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    cors_origins_str: str = "http://localhost:5173,http://localhost:8000"
+    
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parse CORS origins from comma-separated string."""
+        return [origin.strip() for origin in self.cors_origins_str.split(",")]
+    
+    # JWT Authentication
+    jwt_secret_key: str = "INSECURE_DEFAULT_KEY_CHANGE_IN_PRODUCTION"
+    jwt_algorithm: str = "HS256"
+    jwt_expiration_minutes: int = 60
     
     # WebSocket
     ws_heartbeat_interval: int = 30  # seconds
@@ -51,6 +61,10 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
+        env_prefix = ""  # No prefix, use exact variable names
+        fields = {
+            'cors_origins_str': {'env': 'CORS_ORIGINS'}
+        }
 
 
 settings = Settings()

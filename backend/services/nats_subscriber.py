@@ -1,5 +1,6 @@
 """
 NOVA Visualizer Backend - NATS Subscriber
+=========================================
 
 Listens to nova.fused topic and updates Redis with vessel positions.
 """
@@ -7,18 +8,9 @@ Listens to nova.fused topic and updates Redis with vessel positions.
 import asyncio
 import json
 import msgpack
-from nats.aio.client import Client as NATS
-from config import settings
-# redis_service removed (Visualizer is now Read-Only for ingestion)
-from models.vessel import VesselPosition
-from api.websocket import broadcast_vessel_update, broadcast_anomaly
-import logging
-
-logger = logging.getLogger(__name__)
-
-
 from almanach.models.ais_messages import FusionResult
 from almanach.subscription.subscriber import Subscriber
+from config import settings
 from api.websocket import broadcast_vessel_update, broadcast_anomaly
 import logging
 
@@ -30,6 +22,36 @@ class NATSSubscriber:
     
     def __init__(self):
         self.subscriber = Subscriber()
+        self.pending_updates = {}
+        self.batch_size = 50  # Broadcast every 50 vessels
+        self.batch_interval = 0.5  # Or every 500ms
+        self.last_flush = 0
+        self._flush_task = None
+    
+    async def flush_batch(self):
+        """Flush pending updates to WebSocket clients."""
+        if not self.pending_updates:
+            return
+
+        try:
+            # Convert values to list for broadcasting
+            updates = list(self.pending_updates.values())
+            
+            # To avoid breaking existing API if backend doesn't support list, 
+            # we iterate. But for real optimization, we should send the list.
+            # Assuming broadcast_vessel_update handles single item.
+            for update in updates:
+                 await broadcast_vessel_update(update)
+            
+            self.pending_updates.clear()
+            
+        except Exception as e:
+            logger.error(f"Error flushing batch: {e}")
+
+    async def _scheduled_flush(self):
+        """Flush batch periodically."""
+        await asyncio.sleep(self.batch_interval)
+        await self.flush_batch()
     
     async def message_handler(self, vessel_data: FusionResult):
         """Handle incoming NATS message from Fusioner."""
@@ -40,10 +62,19 @@ class NATSSubscriber:
             # Ensure timestamp is string for JSON broadcasting
             if hasattr(vessel_data.timestamp, 'isoformat'):
                 data_dict['timestamp'] = vessel_data.timestamp.isoformat()
-                
-            await broadcast_vessel_update(data_dict)
             
-            # If anomaly, broadcast it (Fusioner already handled hysteresis & persistence)
+            # Batching logic
+            self.pending_updates[vessel_data.mmsi] = data_dict
+
+            # Check if batch size reached
+            if len(self.pending_updates) >= self.batch_size:
+                await self.flush_batch()
+            
+            # Start time-based flush if not running
+            if not self._flush_task or self._flush_task.done():
+                self._flush_task = asyncio.create_task(self._scheduled_flush())
+            
+            # If anomaly, broadcast it IMMEDIATELLY (Fusioner already handled hysteresis & persistence)
             if vessel_data.is_anomaly:
                 anomaly_data = {
                     "data_id": vessel_data.data_id,

@@ -183,22 +183,31 @@ function handleMapClick(e: L.LeafletMouseEvent) {
     }
 }
 
+// Throttled mouse move handler
+let mouseMovePending = false
+
 function handleMapMouseMove(e: L.LeafletMouseEvent) {
-    const point = e.containerPoint
-    const vessel = getVesselAtPoint(point)
-    const newMMSI = vessel?.mmsi ?? null
+    if (mouseMovePending) return
+    mouseMovePending = true
     
-    if (newMMSI !== hoveredMMSI.value) {
-        hoveredMMSI.value = newMMSI
-        // Update canvas highlight
-        updateVessels(props.vessels, vesselsStore.selectedVessel?.mmsi ?? null, newMMSI)
+    requestAnimationFrame(() => {
+        const point = e.containerPoint
+        const vessel = getVesselAtPoint(point)
+        const newMMSI = vessel?.mmsi ?? null
         
-        // Update cursor
-        if (map.value) {
-            const container = map.value.getContainer()
-            container.style.cursor = vessel ? 'pointer' : ''
+        if (newMMSI !== hoveredMMSI.value) {
+            hoveredMMSI.value = newMMSI
+            // Update canvas highlight
+            updateVessels(props.vessels, vesselsStore.selectedVessel?.mmsi ?? null, newMMSI)
+            
+            // Update cursor
+            if (map.value) {
+                const container = map.value.getContainer()
+                container.style.cursor = vessel ? 'pointer' : ''
+            }
         }
-    }
+        mouseMovePending = false
+    })
 }
 
 onMounted(() => {

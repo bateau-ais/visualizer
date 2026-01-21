@@ -4,19 +4,19 @@ NOVA Visualizer Backend - Main FastAPI Application
 Maritime anomaly detection visualization backend.
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncio
 import logging
-
-import asyncio
-import logging
+import time
+from collections import defaultdict
 
 from config import settings
-from api import vessels, anomalies, websocket
+from api import vessels, anomalies, websocket, auth as auth_api
 from services.redis_service import redis_service
 from services.nats_subscriber import nats_subscriber
+from auth import init_default_users
 
 # Configure logging
 logging.basicConfig(
@@ -33,6 +33,9 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     logger.info("🚀 Starting NOVA Visualizer Backend")
+    
+    # Initialize default users
+    init_default_users()
     
     if settings.demo_mode:
         logger.info("⚠️  DEMO MODE ENABLED - Using mock data")
@@ -79,6 +82,38 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Rate limiting middleware
+rate_limit_store = defaultdict(list)
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    """
+    Simple rate limiting: 100 requests per minute per IP.
+    """
+    client_ip = request.client.host
+    current_time = time.time()
+    
+    # Clean old entries
+    rate_limit_store[client_ip] = [
+        req_time for req_time in rate_limit_store[client_ip]
+        if current_time - req_time < 60
+    ]
+    
+    # Check limit
+    if len(rate_limit_store[client_ip]) >= 100:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests. Please try again later."}
+        )
+    
+    # Add current request
+    rate_limit_store[client_ip].append(current_time)
+    
+    response = await call_next(request)
+    return response
+
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -89,6 +124,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth_api.router)  # Auth endpoints
 app.include_router(vessels.router)
 app.include_router(anomalies.router)
 app.include_router(websocket.router)
