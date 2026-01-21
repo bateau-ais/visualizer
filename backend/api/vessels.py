@@ -35,7 +35,7 @@ async def get_vessels(
         
         # Add acknowledgement status to each vessel
         for vessel in vessels_data:
-            vessel['acknowledged'] = ack_service.is_acknowledged(vessel['mmsi'])
+            vessel['acknowledged'] = await ack_service.is_acknowledged(vessel['mmsi'])
         
         # Apply filters
         filtered = vessels_data
@@ -60,6 +60,52 @@ async def get_vessels(
         
     except Exception as e:
         logger.error(f"Error fetching vessels: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/search", response_model=VesselsResponse)
+async def search_vessels(q: str = Query(..., description="Search query (MMSI or name)")):
+    """
+    Search vessels by MMSI or name.
+    """
+    try:
+        # Demo mode: use mock data
+        if settings.demo_mode:
+            vessels_data = [v.model_dump() for v in mock_generator.get_vessels()]
+        else:
+            vessels_data = await redis_service.get_all_vessels()
+        
+        # Add acknowledgement status to each vessel
+        for vessel in vessels_data:
+            vessel['acknowledged'] = await ack_service.is_acknowledged(vessel['mmsi'])
+        
+        # Filter by search query
+        query = q.lower().strip()
+        filtered = []
+        
+        for vessel in vessels_data:
+            # Search by MMSI (exact or partial match)
+            if query in str(vessel['mmsi']):
+                filtered.append(vessel)
+                continue
+            
+            # Search by name (case-insensitive partial match)
+            vessel_name = vessel.get('name', '').lower()
+            if vessel_name and query in vessel_name:
+                filtered.append(vessel)
+                continue
+        
+        # Limit results to 10 for dropdown
+        filtered = filtered[:10]
+        
+        return VesselsResponse(
+            vessels=[VesselPosition(**v) for v in filtered],
+            total=len(filtered),
+            timestamp=datetime.utcnow()
+        )
+        
+    except Exception as e:
+        logger.error(f"Error searching vessels: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -91,14 +137,15 @@ async def get_vessel_details(mmsi: int):
             trajectory = [TrajectoryPoint(**t) for t in trajectory_data]
             
             # Get anomalies
-            anomalies = []
+            anomalies_data = await redis_service.get_vessel_anomalies(mmsi)
+            anomalies = [AnomalyDetail(**a) for a in anomalies_data]
         
         # Get photo
         photo_url = await vessel_api.get_vessel_photo(mmsi)
         
         # Add acknowledgement status
-        vessel_data['acknowledged'] = ack_service.is_acknowledged(mmsi)
-        ack_time = ack_service.get_acknowledgement_time(mmsi)
+        vessel_data['acknowledged'] = await ack_service.is_acknowledged(mmsi)
+        ack_time = await ack_service.get_acknowledgement_time(mmsi)
         if ack_time:
             vessel_data['acknowledged_at'] = ack_time.isoformat()
         
@@ -122,7 +169,7 @@ async def acknowledge_vessel(mmsi: int):
     Acknowledge a vessel anomaly.
     """
     try:
-        newly_acknowledged = ack_service.acknowledge_vessel(mmsi)
+        newly_acknowledged = await ack_service.acknowledge_vessel(mmsi)
         
         return {
             "mmsi": mmsi,
@@ -142,7 +189,7 @@ async def unacknowledge_vessel(mmsi: int):
     Remove acknowledgement from a vessel.
     """
     try:
-        was_acknowledged = ack_service.unacknowledge_vessel(mmsi)
+        was_acknowledged = await ack_service.unacknowledge_vessel(mmsi)
         
         return {
             "mmsi": mmsi,
@@ -161,9 +208,10 @@ async def get_acknowledged_vessels():
     Get list of all acknowledged vessels.
     """
     try:
+        acknowledged_list = await ack_service.get_all_acknowledged()
         return {
-            "acknowledged_vessels": ack_service.get_all_acknowledged(),
-            "total": len(ack_service.acknowledged_vessels)
+            "acknowledged_vessels": acknowledged_list,
+            "total": len(acknowledged_list)
         }
         
     except Exception as e:

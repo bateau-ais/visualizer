@@ -17,21 +17,27 @@ const props = defineProps<Props>()
 const vesselsStore = useVesselsStore()
 const acknowledging = ref(false)
 
+// Use live data from store to ensure updates (like acknowledgment) are reflected immediately
+// even if the prop object is stale due to polling replacements
+const liveVessel = computed(() => {
+    return vesselsStore.vessels.find(v => v.mmsi === props.vessel.mmsi) || props.vessel
+})
+
 const badgeVariant = computed(() => {
-  if (!props.vessel.is_anomaly) return 'success'
-  if (props.vessel.anomaly_score >= 0.8) return 'danger'
+  if (!liveVessel.value.is_anomaly) return 'success'
+  if (liveVessel.value.anomaly_score >= 0.8) return 'danger'
   return 'warning'
 })
 
 const showPulsing = computed(() => {
-  return props.vessel.is_anomaly && !props.vessel.acknowledged
+  return liveVessel.value.is_anomaly && !liveVessel.value.acknowledged
 })
 
 function viewDetails() {
   if (props.onNavigate) {
-    props.onNavigate(props.vessel.mmsi)
+    props.onNavigate(liveVessel.value.mmsi)
   } else {
-    window.location.href = `/vessel/${props.vessel.mmsi}`
+    window.location.href = `/vessel/${liveVessel.value.mmsi}`
   }
 }
 
@@ -46,9 +52,9 @@ const anomalyReason = computed(() => {
 import { onMounted } from 'vue'
 
 onMounted(async () => {
-    if (props.vessel.is_anomaly) {
+    if (liveVessel.value.is_anomaly) {
         try {
-            vesselDetails.value = await vesselsStore.fetchVesselDetails(props.vessel.mmsi)
+            vesselDetails.value = await vesselsStore.fetchVesselDetails(liveVessel.value.mmsi)
         } catch (e) {
             console.error(e)
         }
@@ -72,21 +78,21 @@ async function acknowledge() {
       <div class="flex items-start justify-between mb-2">
         <div class="flex-1">
           <h3 class="text-lg font-bold text-text-primary">
-            {{ vessel.name || 'Unknown Vessel' }}
+            {{ liveVessel.name || 'Unknown Vessel' }}
           </h3>
-          <p class="text-xs text-text-muted">MMSI: {{ vessel.mmsi }}</p>
+          <p class="text-xs text-text-muted">MMSI: {{ liveVessel.mmsi }}</p>
         </div>
         <Ship class="w-5 h-5 text-accent-primary flex-shrink-0 ml-2" />
       </div>
       
       <div class="flex items-center gap-2">
         <Badge :variant="badgeVariant" :dot="showPulsing" size="sm">
-          <span v-if="vessel.is_anomaly">
+          <span v-if="liveVessel.is_anomaly">
            {{ anomalyReason || 'Anomaly Detected' }}
           </span>
           <span v-else>Normal</span>
         </Badge>
-        <Badge v-if="vessel.acknowledged" variant="success" size="sm">
+        <Badge v-if="liveVessel.acknowledged" variant="success" size="sm">
           <CheckCircle class="w-3 h-3 mr-1" />
           Acknowledged
         </Badge>
@@ -96,7 +102,7 @@ async function acknowledge() {
     <!-- Info Grid -->
     <div class="space-y-2 mb-4">
       <!-- Anomaly Details (if anomaly detected) -->
-      <div v-if="vessel.is_anomaly && vesselDetails?.anomalies?.length" class="p-3 bg-bg-tertiary rounded-lg border border-accent-warning/20">
+      <div v-if="liveVessel.is_anomaly && vesselDetails?.anomalies?.length" class="p-3 bg-bg-tertiary rounded-lg border border-accent-warning/20">
         <p class="text-xs font-semibold text-text-muted mb-2">Detected Anomalies:</p>
         <AnomalyReasons 
           :reasons="vesselDetails.anomalies[0].reasons" 
@@ -110,7 +116,7 @@ async function acknowledge() {
         <div class="flex-1 min-w-0">
           <p class="text-xs text-text-muted">Position</p>
           <p class="text-sm text-text-primary font-mono">
-            {{ formatCoordinates(vessel.lat, vessel.lon) }}
+            {{ formatCoordinates(liveVessel.lat, liveVessel.lon) }}
           </p>
         </div>
       </div>
@@ -121,7 +127,7 @@ async function acknowledge() {
           <div>
             <p class="text-xs text-text-muted">Speed</p>
             <p class="text-sm text-text-primary font-semibold">
-              {{ formatSpeed(vessel.sog) }}
+              {{ formatSpeed(liveVessel.sog) }}
             </p>
           </div>
         </div>
@@ -131,22 +137,22 @@ async function acknowledge() {
           <div>
             <p class="text-xs text-text-muted">Course</p>
             <p class="text-sm text-text-primary font-semibold">
-              {{ formatCourse(vessel.cog) }} {{ getCardinalDirection(vessel.cog) }}
+              {{ formatCourse(liveVessel.cog) }} {{ getCardinalDirection(liveVessel.cog) }}
             </p>
           </div>
         </div>
       </div>
       
-      <div v-if="vessel.type" class="flex items-center space-x-2">
+      <div v-if="liveVessel.type" class="flex items-center space-x-2">
         <span class="text-xs text-text-muted">Type:</span>
-        <span class="text-sm text-text-primary capitalize">{{ vessel.type }}</span>
+        <span class="text-sm text-text-primary capitalize">{{ liveVessel.type }}</span>
       </div>
     </div>
     
     <!-- Actions -->
     <div class="flex gap-2">
       <Button 
-        v-if="vessel.is_anomaly && !vessel.acknowledged" 
+        v-if="liveVessel.is_anomaly && !liveVessel.acknowledged" 
         variant="secondary" 
         size="sm" 
         class="flex-1"
@@ -156,7 +162,7 @@ async function acknowledge() {
         <CheckCircle class="w-3 h-3 mr-1" />
         Acknowledge
       </Button>
-      <Button variant="primary" size="sm" :class="vessel.is_anomaly && !vessel.acknowledged ? 'flex-1' : 'w-full'" @click="viewDetails">
+      <Button variant="primary" size="sm" :class="liveVessel.is_anomaly && !liveVessel.acknowledged ? 'flex-1' : 'w-full'" @click="viewDetails">
         <ExternalLink class="w-3 h-3 mr-1" />
         View Details
       </Button>

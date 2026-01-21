@@ -14,7 +14,7 @@ interface VesselRenderCache {
 
 export function useCanvasMap(containerId: string) {
     const map: Ref<L.Map | null> = ref(null)
-    const canvasLayer: Ref<any> = ref(null)
+    const canvasLayer: Ref<VesselCanvasLayer | null> = ref(null)
     const vesselCache = new Map<number, VesselRenderCache>()
     const visibleVessels = ref<Set<number>>(new Set())
     const trajectoryLayer: Ref<L.Polyline | null> = ref(null)
@@ -25,11 +25,11 @@ export function useCanvasMap(containerId: string) {
         private ctx: CanvasRenderingContext2D | null = null
         private vessels: Vessel[] = []
         private bounds: L.LatLngBounds | null = null
-        private onClick?: (vessel: Vessel) => void
+        private selectedMMSI: number | null = null
+        private hoveredMMSI: number | null = null
 
-        constructor(onClick?: (vessel: Vessel) => void) {
+        constructor() {
             super()
-            this.onClick = onClick
         }
 
         onAdd(map: L.Map): this {
@@ -38,19 +38,22 @@ export function useCanvasMap(containerId: string) {
             canvas.width = size.x
             canvas.height = size.y
             canvas.style.position = 'absolute'
-            canvas.style.pointerEvents = 'auto'
+
+            // TRANSPARENT INTERACTION: Let events pass through to map and other UI
+            canvas.style.pointerEvents = 'none'
 
             this.canvas = canvas
             this.ctx = canvas.getContext('2d')!
 
             map.getPanes().overlayPane!.appendChild(canvas)
 
-            // Handle map events
-            map.on('move zoom viewreset', this.redraw, this)
-            map.on('resize', this.onResize, this)
+            // Initial positioning
+            this._updatePosition()
 
-            // Handle click events
-            L.DomEvent.on(canvas, 'click', this.handleClick, this)
+            // Handle map events
+            map.on('move', this._updatePosition, this)
+            map.on('zoom viewreset', this.redraw, this)
+            map.on('resize', this.onResize, this)
 
             this.redraw()
             return this
@@ -59,14 +62,24 @@ export function useCanvasMap(containerId: string) {
         onRemove(map: L.Map): this {
             if (this.canvas) {
                 L.DomUtil.remove(this.canvas)
-                map.off('move zoom viewreset', this.redraw, this)
+                map.off('move', this._updatePosition, this)
+                map.off('zoom viewreset', this.redraw, this)
                 map.off('resize', this.onResize, this)
-                L.DomEvent.off(this.canvas, 'click', this.handleClick, this)
             }
             return this
         }
 
-        onResize(e: any) {
+        // Update Canvas position to match map position
+        _updatePosition = () => {
+            if (!this.canvas || !map.value) return
+
+            const topLeft = map.value.containerPointToLayerPoint([0, 0])
+            L.DomUtil.setPosition(this.canvas, topLeft)
+
+            this.redraw()
+        }
+
+        onResize() {
             if (!this.canvas || !map.value) return
             const size = map.value.getSize()
             this.canvas.width = size.x
@@ -74,8 +87,10 @@ export function useCanvasMap(containerId: string) {
             this.redraw()
         }
 
-        setVessels(vessels: Vessel[]) {
+        updateState(vessels: Vessel[], selectedMMSI?: number | null, hoveredMMSI?: number | null) {
             this.vessels = vessels
+            this.selectedMMSI = selectedMMSI ?? null
+            this.hoveredMMSI = hoveredMMSI ?? null
             this.redraw()
         }
 
@@ -89,17 +104,17 @@ export function useCanvasMap(containerId: string) {
             this.bounds = map.value.getBounds()
 
             // Filter visible vessels (virtualization)
-            const visibleVessels = this.vessels.filter(vessel =>
+            const filteredVessels = this.vessels.filter(vessel =>
                 this.bounds!.contains([vessel.lat, vessel.lon])
             )
 
             // Update visible vessels set
-            const newVisibleSet = new Set(visibleVessels.map(v => v.mmsi))
-            visibleVessels.length = 0
-            visibleVessels.splice(0, visibleVessels.length, ...visibleVessels.map(v => v.mmsi))
+            visibleVessels.value.clear()
+            filteredVessels.forEach(v => visibleVessels.value.add(v.mmsi))
 
             // Draw each visible vessel
-            visibleVessels.forEach(vessel => {
+            // Sort by latitude to handle overlap occlusion
+            filteredVessels.sort((a, b) => b.lat - a.lat).forEach(vessel => {
                 this.drawVessel(vessel)
             })
         }
@@ -110,8 +125,10 @@ export function useCanvasMap(containerId: string) {
             const point = map.value.latLngToContainerPoint([vessel.lat, vessel.lon])
             const heading = vessel.heading || vessel.cog || 0
             const color = getVesselStatusColor(vessel.anomaly_score, vessel.is_anomaly)
+            const isSelected = this.selectedMMSI === vessel.mmsi
+            const isHovered = this.hoveredMMSI === vessel.mmsi
 
-            // Cache vessel render state
+            // Cache vessel render state for hit detection
             vesselCache.set(vessel.mmsi, {
                 x: point.x,
                 y: point.y,
@@ -123,6 +140,27 @@ export function useCanvasMap(containerId: string) {
 
             this.ctx.save()
             this.ctx.translate(point.x, point.y)
+
+            // Draw selection indicator (WHITE CIRCLE)
+            if (isSelected) {
+                this.ctx.beginPath()
+                this.ctx.arc(0, 0, 22, 0, Math.PI * 2)
+                this.ctx.strokeStyle = '#ffffff'
+                this.ctx.lineWidth = 2
+                this.ctx.shadowColor = 'rgba(0, 0, 0, 0.5)'
+                this.ctx.shadowBlur = 4
+                this.ctx.stroke()
+            }
+
+            // Draw hover indicator
+            if (isHovered && !isSelected) {
+                this.ctx.beginPath()
+                this.ctx.arc(0, 0, 18, 0, Math.PI * 2)
+                this.ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)'
+                this.ctx.lineWidth = 1.5
+                this.ctx.stroke()
+            }
+
             this.ctx.rotate((heading * Math.PI) / 180)
 
             // Draw glow for anomalies
@@ -137,79 +175,77 @@ export function useCanvasMap(containerId: string) {
 
             // Draw vessel triangle
             this.ctx.beginPath()
-            this.ctx.moveTo(0, -12)  // Top point
-            this.ctx.lineTo(-6, 8)   // Bottom left
-            this.ctx.lineTo(6, 8)    // Bottom right
+            this.ctx.moveTo(0, -12)
+            this.ctx.lineTo(-6, 8)
+            this.ctx.lineTo(6, 8)
             this.ctx.closePath()
 
-            // Fill
             this.ctx.fillStyle = color
             this.ctx.fill()
 
-            // Stroke
             this.ctx.strokeStyle = '#ffffff'
             this.ctx.lineWidth = 1.5
             this.ctx.stroke()
 
             // Draw alert indicator for unacknowledged anomalies
             if (vessel.is_anomaly && !vessel.acknowledged) {
+                this.ctx.rotate(-(heading * Math.PI) / 180)
                 this.ctx.beginPath()
-                this.ctx.arc(8, -8, 3, 0, Math.PI * 2)
+                this.ctx.arc(8, -8, 4, 0, Math.PI * 2)
                 this.ctx.fillStyle = '#ef4444'
                 this.ctx.fill()
+                this.ctx.strokeStyle = '#fff'
+                this.ctx.lineWidth = 1
+                this.ctx.stroke()
             }
 
             this.ctx.restore()
         }
 
-        private handleClick = (e: MouseEvent) => {
-            if (!this.canvas || !this.onClick) return
-
-            const rect = this.canvas.getBoundingClientRect()
-            const x = e.clientX - rect.left
-            const y = e.clientY - rect.top
-
-            // Find clicked vessel using spatial proximity
+        // Public method to find a vessel at a specific container point
+        getVesselAtPoint(point: L.Point): Vessel | null {
             let closestVessel: Vessel | null = null
-            let minDistance = 20 // Click tolerance in pixels
+            let minDistance = 20 // Hit radius in pixels
 
-            this.vessels.forEach(vessel => {
-                const cached = vesselCache.get(vessel.mmsi)
+            visibleVessels.value.forEach(mmsi => {
+                const cached = vesselCache.get(mmsi)
                 if (!cached) return
 
-                const dx = cached.x - x
-                const dy = cached.y - y
+                const dx = cached.x - point.x
+                const dy = cached.y - point.y
                 const distance = Math.sqrt(dx * dx + dy * dy)
 
                 if (distance < minDistance) {
                     minDistance = distance
-                    closestVessel = vessel
+                    closestVessel = this.vessels.find(v => v.mmsi === mmsi) || null
                 }
             })
-
-            if (closestVessel) {
-                this.onClick(closestVessel)
-            }
+            return closestVessel
         }
     }
 
     function initMap(center: [number, number] = [48.8566, 2.3522], zoom: number = 6) {
         if (map.value) return map.value
 
-        map.value = L.map(containerId, {
-            center,
-            zoom,
-            zoomControl: true,
-            preferCanvas: true // Enable Canvas rendering globally
-        })
+        try {
+            const newMap = L.map(containerId, {
+                center,
+                zoom,
+                zoomControl: true,
+                preferCanvas: true
+            })
 
-        // Add OpenStreetMap base layer
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors',
-            maxZoom: 19
-        }).addTo(map.value)
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors',
+                maxZoom: 19
+            }).addTo(newMap)
 
-        // Add OpenSeaMap overlay
+            map.value = newMap
+        } catch (error) {
+            console.error('[useCanvasMap] CRITICAL ERROR calling L.map:', error)
+            return null
+        }
+
         L.tileLayer('https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png', {
             attribution: '© OpenSeaMap contributors',
             maxZoom: 18
@@ -218,16 +254,16 @@ export function useCanvasMap(containerId: string) {
         return map.value
     }
 
-    function initCanvasLayer(onClick?: (vessel: Vessel) => void) {
+    function initCanvasLayer() {
         if (!map.value || canvasLayer.value) return
 
-        canvasLayer.value = new VesselCanvasLayer(onClick)
+        canvasLayer.value = new VesselCanvasLayer()
         canvasLayer.value.addTo(map.value)
     }
 
-    function updateVessels(vessels: Vessel[]) {
+    function updateVessels(vessels: Vessel[], selectedMMSI?: number | null, hoveredMMSI?: number | null) {
         if (!canvasLayer.value) return
-        canvasLayer.value.setVessels(vessels)
+        canvasLayer.value.updateState(vessels, selectedMMSI, hoveredMMSI)
     }
 
     function setTrajectory(points: { lat: number; lon: number }[]) {
@@ -268,6 +304,11 @@ export function useCanvasMap(containerId: string) {
         return visibleVessels.value
     }
 
+    function getVesselAtPoint(point: L.Point): Vessel | null {
+        if (!canvasLayer.value) return null
+        return canvasLayer.value.getVesselAtPoint(point)
+    }
+
     onUnmounted(() => {
         if (canvasLayer.value && map.value) {
             map.value.removeLayer(canvasLayer.value)
@@ -288,6 +329,7 @@ export function useCanvasMap(containerId: string) {
         setTrajectory,
         removeTrajectory,
         fitBounds,
-        getVisibleVessels
+        getVisibleVessels,
+        getVesselAtPoint
     }
 }

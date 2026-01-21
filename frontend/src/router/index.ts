@@ -15,12 +15,7 @@ const router = createRouter({
             component: () => import('@/views/MapView.vue'),
             meta: { title: 'Live Map' } // Kept existing meta title
         },
-        {
-            path: '/heatmap',
-            name: 'Heatmap', // Changed from 'heatmap'
-            component: () => import('@/views/Heatmap.vue'),
-            meta: { title: 'Anomaly Heatmap' }
-        },
+
         {
             path: '/vessel/:mmsi',
             name: 'vessel-history',
@@ -32,6 +27,12 @@ const router = createRouter({
             name: 'anomaly-docs',
             component: () => import('@/views/AnomalyDocs.vue'),
             meta: { title: 'Anomaly Guide' }
+        },
+        {
+            path: '/notifications',
+            name: 'Notifications',
+            component: () => import('@/views/NotificationsView.vue'),
+            meta: { title: 'Notifications' }
         }
     ]
 })

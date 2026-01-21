@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Vessel, VesselFilter } from '@/types/vessel'
 import api from '@/utils/api'
+import { useNotificationStore } from './notifications'
 
 export const useVesselsStore = defineStore('vessels', () => {
     // State
@@ -30,6 +31,19 @@ export const useVesselsStore = defineStore('vessels', () => {
         vessels.value.filter(v => v.is_anomaly)
     )
     const anomalyCount = computed(() => anomalousVessels.value.length)
+
+    // Split based on score thresholds (matching colors.ts)
+    // Critical: score >= 0.8
+    const criticalVessels = computed(() =>
+        anomalousVessels.value.filter(v => v.anomaly_score >= 0.8)
+    )
+    const criticalCount = computed(() => criticalVessels.value.length)
+
+    // Warning: 0.5 <= score < 0.8
+    const warningVessels = computed(() =>
+        anomalousVessels.value.filter(v => v.anomaly_score >= 0.5 && v.anomaly_score < 0.8)
+    )
+    const warningCount = computed(() => warningVessels.value.length)
 
     // Helper to rebuild index map
     function rebuildIndexMap() {
@@ -67,11 +81,36 @@ export const useVesselsStore = defineStore('vessels', () => {
         }
     }
 
+    // Cache logic
+    interface CacheEntry {
+        data: any
+        timestamp: number
+    }
+    const detailsCache = new Map<number, CacheEntry>()
+    const CACHE_TTL = 5 * 60 * 1000 // 5 minutes
+
     async function fetchVesselDetails(mmsi: number) {
+        // Check cache first
+        const cached = detailsCache.get(mmsi)
+        const now = Date.now()
+
+        if (cached && (now - cached.timestamp < CACHE_TTL)) {
+            selectedVessel.value = cached.data
+            return cached.data
+        }
+
         try {
             const response = await api.get(`/vessels/${mmsi}`)
-            selectedVessel.value = response.data
-            return response.data
+            const data = response.data
+
+            // Store in cache
+            detailsCache.set(mmsi, {
+                data: data,
+                timestamp: now
+            })
+
+            selectedVessel.value = data
+            return data
         } catch (err: any) {
             error.value = err.message
             console.error(`Error fetching vessel ${mmsi}:`, err)
@@ -141,13 +180,29 @@ export const useVesselsStore = defineStore('vessels', () => {
                 vessels.value[index].acknowledged = true
             }
 
-            if (selectedVessel.value?.mmsi === mmsi) {
-                selectedVessel.value.acknowledged = true
-            }
+
+
+            // Sync with notification store
+            const notificationStore = useNotificationStore()
+            notificationStore.markAsReadLocal(mmsi)
         } catch (err: any) {
             error.value = err.message
             console.error(`Error acknowledging vessel ${mmsi}:`, err)
             throw err
+        }
+    }
+
+    async function searchVessels(query: string): Promise<Vessel[]> {
+        if (!query || query.trim().length === 0) {
+            return []
+        }
+
+        try {
+            const response = await api.get(`/vessels/search?q=${encodeURIComponent(query)}`)
+            return response.data.vessels
+        } catch (err: any) {
+            console.error('Error searching vessels:', err)
+            return []
         }
     }
 
@@ -163,6 +218,8 @@ export const useVesselsStore = defineStore('vessels', () => {
         vesselsCount,
         anomalousVessels,
         anomalyCount,
+        criticalCount,
+        warningCount,
 
         // Actions
         fetchVessels,
@@ -170,6 +227,7 @@ export const useVesselsStore = defineStore('vessels', () => {
         updateVessel,
         selectVessel,
         setFilters,
-        acknowledgeVessel
+        acknowledgeVessel,
+        searchVessels
     }
 })

@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     vessel_position_ttl: int = 1800  # 30 minutes
     heatmap_cache_ttl: int = 300  # 5 minutes
     
+    # Anomaly Logic
+    anomaly_clean_frames_threshold: int = 10  # Number of clean frames to recover from anomaly
+    
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

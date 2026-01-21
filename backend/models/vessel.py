@@ -25,6 +25,7 @@ class VesselPosition(BaseModel):
     anomaly_score: float = 0.0
     is_anomaly: bool = False
     status: Optional[str] = None
+    acknowledged: bool = False
 
 
 class TrajectoryPoint(BaseModel):

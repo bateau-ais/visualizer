@@ -41,7 +41,22 @@ async def get_anomalies(
         filtered = [a for a in anomalies_data if a.get("score", 0) >= min_score]
         
         # Convert to Pydantic models
-        anomalies = [AnomalyEvent(**a) for a in filtered]
+        anomalies = []
+        
+        # Import ack_service inside function to avoid circular imports if any
+        from services.ack_service import ack_service
+        
+        for a in filtered:
+            # Check if acknowledged
+            mmsi = a.get("mmsi")
+            is_acked = await ack_service.is_acknowledged(mmsi) if mmsi else False
+            
+            # Create model with acknowledged status
+            anomaly = AnomalyEvent(
+                **a,
+                acknowledged=is_acked
+            )
+            anomalies.append(anomaly)
         
         return anomalies
     

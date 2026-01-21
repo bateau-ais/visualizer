@@ -1,19 +1,20 @@
 """
 Acknowledgement service for managing acknowledged vessels.
+Now uses Redis for persistence instead of in-memory storage.
 """
 
 from datetime import datetime
-from typing import Set
+from services.redis_service import redis_service
 
 
 class AcknowledgementService:
-    """Manage acknowledged vessels in memory."""
+    """Manage acknowledged vessels using Redis for persistence."""
     
     def __init__(self):
-        self.acknowledged_vessels: Set[int] = set()
-        self.acknowledgement_times: dict[int, datetime] = {}
+        """Initialize service. No in-memory storage needed."""
+        pass
     
-    def acknowledge_vessel(self, mmsi: int) -> bool:
+    async def acknowledge_vessel(self, mmsi: int) -> bool:
         """
         Mark a vessel as acknowledged.
         
@@ -23,14 +24,16 @@ class AcknowledgementService:
         Returns:
             True if newly acknowledged, False if already acknowledged
         """
-        if mmsi in self.acknowledged_vessels:
+        # Check if already acknowledged
+        is_already_acked = await redis_service.is_acknowledged(mmsi)
+        if is_already_acked:
             return False
         
-        self.acknowledged_vessels.add(mmsi)
-        self.acknowledgement_times[mmsi] = datetime.utcnow()
+        # Store in Redis
+        await redis_service.store_acknowledgment(mmsi, datetime.utcnow())
         return True
     
-    def unacknowledge_vessel(self, mmsi: int) -> bool:
+    async def unacknowledge_vessel(self, mmsi: int) -> bool:
         """
         Remove acknowledgement from a vessel.
         
@@ -40,35 +43,33 @@ class AcknowledgementService:
         Returns:
             True if was acknowledged, False otherwise
         """
-        if mmsi not in self.acknowledged_vessels:
+        # Check if was acknowledged
+        is_acked = await redis_service.is_acknowledged(mmsi)
+        if not is_acked:
             return False
         
-        self.acknowledged_vessels.remove(mmsi)
-        self.acknowledgement_times.pop(mmsi, None)
+        # Remove from Redis
+        await redis_service.remove_acknowledgment(mmsi)
         return True
     
-    def is_acknowledged(self, mmsi: int) -> bool:
+    async def is_acknowledged(self, mmsi: int) -> bool:
         """Check if vessel is acknowledged."""
-        return mmsi in self.acknowledged_vessels
+        return await redis_service.is_acknowledged(mmsi)
     
-    def get_acknowledgement_time(self, mmsi: int) -> datetime | None:
+    async def get_acknowledgement_time(self, mmsi: int) -> datetime | None:
         """Get time when vessel was acknowledged."""
-        return self.acknowledgement_times.get(mmsi)
+        return await redis_service.get_acknowledgment_time(mmsi)
     
-    def get_all_acknowledged(self) -> list[dict]:
+    async def get_all_acknowledged(self) -> list[dict]:
         """Get all acknowledged vessels."""
-        return [
-            {
-                "mmsi": mmsi,
-                "acknowledged_at": self.acknowledgement_times[mmsi].isoformat()
-            }
-            for mmsi in self.acknowledged_vessels
-        ]
+        return await redis_service.get_all_acknowledged()
     
-    def clear_all(self):
+    async def clear_all(self):
         """Clear all acknowledgements."""
-        self.acknowledged_vessels.clear()
-        self.acknowledgement_times.clear()
+        # Get all acknowledged vessels and remove them
+        all_acked = await redis_service.get_all_acknowledged()
+        for vessel in all_acked:
+            await redis_service.remove_acknowledgment(vessel["mmsi"])
 
 
 # Global instance

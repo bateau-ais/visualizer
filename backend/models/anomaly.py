@@ -14,9 +14,9 @@ class AnomalyEvent(BaseModel):
     score: float
     reasons: list[str]
     confidence: float
-    vessel_name: str | None = None
     lat: float | None = None
     lon: float | None = None
+    acknowledged: bool = False
 
 
 class HeatmapCell(BaseModel):

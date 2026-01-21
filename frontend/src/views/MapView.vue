@@ -101,11 +101,11 @@ watch(() => vesselsStore.vessels, () => {
           </div>
           <div class="flex items-center space-x-2">
             <div class="w-3 h-3 rounded-full bg-vessel-warning" />
-            <span class="text-xs text-text-secondary">Warning</span>
+            <span class="text-xs text-text-secondary">Warning ({{ vesselsStore.warningCount }})</span>
           </div>
           <div class="flex items-center space-x-2">
             <div class="w-3 h-3 rounded-full bg-vessel-danger" />
-            <span class="text-xs text-text-secondary">Critical ({{ vesselsStore.anomalyCount }})</span>
+            <span class="text-xs text-text-secondary">Critical ({{ vesselsStore.criticalCount }})</span>
           </div>
         </div>
       </div>

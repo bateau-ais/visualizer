@@ -9,7 +9,7 @@ import json
 import msgpack
 from nats.aio.client import Client as NATS
 from config import settings
-from services.redis_service import redis_service
+# redis_service removed (Visualizer is now Read-Only for ingestion)
 from models.vessel import VesselPosition
 from api.websocket import broadcast_vessel_update, broadcast_anomaly
 import logging
@@ -45,8 +45,19 @@ class NATSSubscriber:
             vessel_type = data.get("vessel_type") or data.get("type", "unknown")
             nav_status = data.get("nav_status") or data.get("status")
             
-            is_anomaly = data.get("anomaly_detected") or data.get("is_anomaly", False)
+            # Raw anomaly status
+            raw_is_anomaly = data.get("anomaly_detected") or data.get("is_anomaly", False)
             anomaly_score = data.get("anomaly_score", 0.0)
+            
+            # Apply hysteresis logic
+            mmsi = data.get("mmsi")
+            is_anomaly = raw_is_anomaly
+            if mmsi:
+                is_anomaly = await redis_service.update_anomaly_status(
+                    mmsi,
+                    raw_is_anomaly,
+                    settings.anomaly_clean_frames_threshold
+                )
             
             # Extract vessel position
             vessel_data = {
@@ -70,24 +81,13 @@ class NATSSubscriber:
             if not vessel_data["lat"] or not vessel_data["lon"]:
                 return
 
-            # Store in Redis
-            await redis_service.store_vessel_position(
-                data["mmsi"],
-                vessel_data
-            )
+            # Wrapper for existing WebSocket broadcast
+            # We don't write to Redis anymore (Fusioner does it)
             
             # Broadcast update to WebSocket clients
             await broadcast_vessel_update(vessel_data)
             
-            # Store trajectory point
-            await redis_service.store_trajectory_point(
-                data["mmsi"],
-                data["lat"],
-                data["lon"],
-                data["timestamp"]
-            )
-            
-            # If anomaly, store it
+            # If anomaly, broadcast it
             if is_anomaly:
                 anomaly_data = {
                     "data_id": data.get("data_id"),
@@ -100,12 +100,11 @@ class NATSSubscriber:
                     "lat": data["lat"],
                     "lon": data["lon"]
                 }
-                await redis_service.store_anomaly(anomaly_data)
                 
                 # Broadcast anomaly
                 await broadcast_anomaly(anomaly_data)
                 
-                logger.info(f"Anomaly detected: {data['mmsi']} (score={anomaly_data['score']:.2f})")
+                logger.info(f"Anomaly detected (broadcast only): {data['mmsi']} (score={anomaly_data['score']:.2f})")
             
         except Exception as e:
             logger.error(f"Error processing NATS message: {e}")

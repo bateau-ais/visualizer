@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, watch, createApp, ref } from 'vue'
+import { onMounted, onUnmounted, watch, createApp, ref } from 'vue'
 import { useCanvasMap } from '@/composables/useCanvasMap'
 import { useVesselsStore } from '@/stores/vessels'
 import type { Vessel } from '@/types/vessel'
@@ -19,17 +19,25 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const vesselsStore = useVesselsStore()
-const { map, initMap, initCanvasLayer, updateVessels, setTrajectory, removeTrajectory, fitBounds, getVisibleVessels } = useCanvasMap(props.containerId)
+const { 
+  map, 
+  initMap, 
+  initCanvasLayer, 
+  updateVessels, 
+  setTrajectory, 
+  removeTrajectory, 
+  fitBounds, 
+  getVisibleVessels,
+  getVesselAtPoint 
+} = useCanvasMap(props.containerId)
 
-onMounted(() => {
-  initMap(props.center, props.zoom)
-  initCanvasLayer(onVesselClick)
-  updateVessels(props.vessels)
-})
+// onMounted moved below to include map click listener setup
 
-// Optimized watch: only watch vessels length, not deep
+// Redundant watcher removed to prevent state conflicts and performance overhead
+
 const renderRequest = ref<number | null>(null)
 const lastVesselHash = ref<string>('')
+const hoveredMMSI = ref<number | null>(null)
 
 function getVesselHash(vessels: Vessel[]): string {
   // Create a simple hash from vessel count and first/last MMSIs
@@ -37,83 +45,161 @@ function getVesselHash(vessels: Vessel[]): string {
   return `${vessels.length}-${vessels[0]?.mmsi}-${vessels[vessels.length - 1]?.mmsi}`
 }
 
+// Optimized watch for vessels: only trigger canvas update if data actually changed
+// and use a throttled approach for position updates
 watch(() => props.vessels, (newVessels) => {
   const newHash = getVesselHash(newVessels)
   
-  // Skip if vessels haven't changed significantly
-  if (newHash === lastVesselHash.value && newVessels.length > 0) {
-    // Still update canvas for position/heading changes but throttle it
-    if (renderRequest.value) return
+  if (newHash !== lastVesselHash.value || !renderRequest.value) {
+    lastVesselHash.value = newHash
+    
+    if (renderRequest.value) cancelAnimationFrame(renderRequest.value)
+    
+    renderRequest.value = requestAnimationFrame(() => {
+      // Sync canvas with all state: vessels, selection, AND hover
+      updateVessels(newVessels, vesselsStore.selectedVessel?.mmsi ?? null, hoveredMMSI.value)
+      renderRequest.value = null
+      
+      // Update popup position if it exists (follow moving vessel)
+      if (currentPopup.value && vesselsStore.selectedVessel) {
+        const selected = newVessels.find(v => v.mmsi === vesselsStore.selectedVessel?.mmsi)
+        if (selected) {
+           currentPopup.value.setLatLng([selected.lat, selected.lon])
+        } else {
+           // Selected vessel disappeared
+           currentPopup.value.remove()
+           currentPopup.value = null
+        }
+      }
+    })
   }
-  
-  lastVesselHash.value = newHash
-  
-  // Cancel any pending render
-  if (renderRequest.value) {
-    cancelAnimationFrame(renderRequest.value)
-  }
-  
-  // Batch updates with requestAnimationFrame
-  renderRequest.value = requestAnimationFrame(() => {
-    updateVessels(newVessels)
-    renderRequest.value = null
-  })
-})
+}, { deep: false }) // DISABLE deep watch on all vessels
 
-// Watch for selected vessel to draw trajectory
-watch(() => vesselsStore.selectedVessel, async (vessel) => {
+// Watch for selection changes (from outside or clicks)
+watch(() => vesselsStore.selectedVessel, (vessel) => {
+  // Update palette/trajectory
   if (vessel) {
-    // If we have trajectory data, draw it
     if ('trajectory' in vessel && Array.isArray(vessel.trajectory)) {
        setTrajectory(vessel.trajectory)
-    } else {
-       // Fetch details if not present (handled by store usually, but let's be safe)
-       // Actually store.selectVessel doesn't fetch details automatically unless onVesselClick calls it?
-       // onVesselClick calls store.selectVessel.
-       // We should fetch details here if missing? 
-       // Better: onVesselClick triggers fetch.
-       removeTrajectory()
     }
   } else {
     removeTrajectory()
   }
-}, { deep: true })
+  // Force a redraw to show selection circle
+  updateVessels(props.vessels, vessel?.mmsi ?? null, hoveredMMSI.value)
+})
 
-// Canvas rendering is handled automatically by useCanvasMap
-// No need for manual renderVessels function
+const currentPopup = ref<L.Popup | null>(null)
+let currentPopupApp: any = null
+
+function closeSelection() {
+  if (currentPopup.value) {
+    const popup = currentPopup.value
+    currentPopup.value = null
+    popup.remove()
+  }
+  
+  if (currentPopupApp) {
+    currentPopupApp.unmount()
+    currentPopupApp = null
+  }
+  
+  vesselsStore.selectVessel(null)
+}
 
 function onVesselClick(vessel: Vessel) {
   if (!map.value) return
   
-  // Create Vue component instance for popup with router
+  // Close previous selection properly
+  closeSelection()
+  
   const popupContainer = document.createElement('div')
   const popupApp = createApp(VesselPopup, { 
-    vessel,
+    vessel, 
     onNavigate: (mmsi: number) => {
-      // Navigate using the parent router
-      import('vue-router').then(({ useRouter }) => {
-        window.location.href = `/vessel/${mmsi}`
-      })
+      window.location.href = `/vessel/${mmsi}`
     }
   })
   popupApp.mount(popupContainer)
+  currentPopupApp = popupApp
   
-  // Create Leaflet popup
   const popup = L.popup({
     className: 'vessel-popup',
     maxWidth: 320,
-    closeButton: true
+    closeButton: true,
+    autoClose: false,
+    closeOnClick: false
   })
     .setLatLng([vessel.lat, vessel.lon])
     .setContent(popupContainer)
-    .openOn(map.value)
   
-  // Store selected vessel and fetch details (trajectory)
-  vesselsStore.selectVessel(vessel.mmsi)
-  vesselsStore.fetchVesselDetails(vessel.mmsi).then((details) => {
-      // Logic handled by watcher
+  popup.on('remove', () => {
+    // If THIS popup is being removed (e.g. via X button) and we haven't already
+    // nullified currentPopup, trigger full cleanup
+    if (currentPopup.value === popup) {
+       closeSelection()
+    }
   })
+  
+  popup.openOn(map.value)
+  currentPopup.value = popup
+  
+  vesselsStore.selectVessel(vessel.mmsi)
+  vesselsStore.fetchVesselDetails(vessel.mmsi)
 }
+
+// Transparent Interaction Handlers (Map Layer Level)
+function handleMapClick(e: L.LeafletMouseEvent) {
+    // 1. Check if we hit a vessel
+    const point = e.containerPoint
+    const vessel = getVesselAtPoint(point)
+    
+    if (vessel) {
+        // Vessel clicked
+        onVesselClick(vessel)
+    } else {
+        // Background clicked
+        closeSelection()
+    }
+}
+
+function handleMapMouseMove(e: L.LeafletMouseEvent) {
+    const point = e.containerPoint
+    const vessel = getVesselAtPoint(point)
+    const newMMSI = vessel?.mmsi ?? null
+    
+    if (newMMSI !== hoveredMMSI.value) {
+        hoveredMMSI.value = newMMSI
+        // Update canvas highlight
+        updateVessels(props.vessels, vesselsStore.selectedVessel?.mmsi ?? null, newMMSI)
+        
+        // Update cursor
+        if (map.value) {
+            const container = map.value.getContainer()
+            container.style.cursor = vessel ? 'pointer' : ''
+        }
+    }
+}
+
+onMounted(() => {
+  console.log('[LeafletMap] Initializing with transparent interaction model')
+  const m = initMap(props.center, props.zoom)
+  
+  if (m) {
+    m.on('click', handleMapClick)
+    m.on('mousemove', handleMapMouseMove)
+  }
+  
+  initCanvasLayer()
+  updateVessels(props.vessels)
+})
+
+// Clean up
+onUnmounted(() => {
+    if (renderRequest.value) {
+        cancelAnimationFrame(renderRequest.value)
+    }
+})
 
 // Expose methods for parent components
 defineExpose({

@@ -12,174 +12,180 @@ interface AnomalyType {
   examples: string[]
   causes: string[]
   actions: string[]
+  monitored: boolean
 }
 
 const anomalyTypes: AnomalyType[] = [
   {
     id: 'speed',
-    name: 'Speed Anomaly',
+    name: 'Anomalie de Vitesse',
     icon: TrendingUp,
     severity: 'medium',
-    description: 'Détectée lorsqu\'un navire navigue à une vitesse anormalement élevée ou basse par rapport à son type et à ses conditions habituelles.',
+    monitored: true,
+    description: 'Vitesse incohérente avec le profil historique du navire (Z-score > 2.5σ) ou variation brusque non justifiée (Speed Spike).',
     examples: [
-      'Un cargo naviguant à plus de 25 nœuds (vitesse inhabituelle pour ce type)',
-      'Un navire de pêche complètement immobile pendant plusieurs heures dans une zone de navigation active',
-      'Changements brusques de vitesse sans raison apparente'
+      'Variation instantanée > 5 nœuds (Seuil IMO SOLAS V/19)',
+      'Vitesse < 0.5 nœuds en haute mer (Arrêt inexpliqué)',
+      'Déviation significative par rapport à la moyenne historique (30 jours)'
     ],
     causes: [
-      'Urgence médicale ou technique',
-      'Activités de pêche illégale',
-      'Tentative d\'éviter la détection',
-      'Problèmes moteur'
+      'Manœuvre d\'urgence ou évitement',
+      'Dérive suite à avarie propulsion',
+      'Dysfonctionnement capteur loch/GPS',
+      'Falsification de données (Spoofing)'
     ],
     actions: [
-      'Vérifier l\'historique de vitesse du navire',
-      'Comparer avec les navires similaires dans la zone',
-      'Contacter le navire si nécessaire'
+      'Vérifier la cohérence avec le profil cinématique du navire',
+      'Analyser l\'historique de vitesse sur 24h',
+      'Corréler avec les conditions météo (État de mer)'
     ]
   },
   {
     id: 'course',
-    name: 'Course Anomaly',
+    name: 'Anomalie de Trajectoire',
     icon: Navigation,
     severity: 'medium',
-    description: 'Changement soudain et inexpliqué de la trajectoire ou du cap du navire, pouvant indiquer une manœuvre d\'évitement ou un comportement suspect.',
+    monitored: true,
+    description: 'Évolution du navire incohérente avec les normes de navigation ou la réglementation (COLREGs).',
     examples: [
-      'Changement de cap de plus de 90° sans raison apparente',
-      'Navigation en zigzag dans une zone normalement droite',
-      'Déviation soudaine de la route maritime établie'
+      'Changement de cap > 90° non justifié (COLREGS Rule 8b)',
+      'Navigation en zigzag (Variance de cap élevée > 50 deg²)',
+      'Dérive latérale importante'
     ],
     causes: [
-      'Évitement d\'obstacles ou d\'autres navires',
-      'Conditions météorologiques',
-      'Activités de contrebande',
-      'Problèmes de navigation'
+      'Manœuvre d\'évitement (Collision avoidance)',
+      'Perte de manœuvrabilité',
+      'Conditions météorologiques dégradées',
+      'Comportement suspect (Contrebande, Transbordement)'
     ],
     actions: [
-      'Analyser le contexte de la zone (météo, trafic)',
-      'Vérifier s\'il y avait d\'autres navires à proximité',
-      'Examiner la trajectoire complète sur 24h'
+      'Consulter les données radar/ARPA si disponibles',
+      'Vérifier la densité du trafic environnant',
+      'Surveiller l\'évolution du CPA/TCPA avec les navires proches'
     ]
   },
   {
     id: 'heading',
-    name: 'Heading Anomaly',
+    name: 'Incohérence Cap/Route',
     icon: Navigation,
     severity: 'low',
-    description: 'Incohérence entre le cap (heading) et la direction réelle du mouvement (course over ground), ce qui peut indiquer des problèmes de navigation ou de transmission.',
+    monitored: false,
+    description: 'Divergence significative entre le cap gyro (Heading) et la route fond (COG), suggérant une dérive ou une erreur instrumentale.',
     examples: [
-      'Le navire pointe vers le nord mais se déplace vers l\'est',
-      'Différence persistante de plus de 30° entre heading et COG',
-      'Cap changeant rapidement alors que la trajectoire reste stable'
+      'Différence |Heading - COG| > 30° durable',
+      'Cap stable mais variation forte de la route fond',
+      'Indication de giration sans changement de cap'
     ],
     causes: [
-      'Courants marins forts',
-      'Problèmes de gouvernail',
-      'Erreurs de transmission AIS',
-      'Manœuvres spéciales'
+      'Forte dérive (Courant/Vent)',
+      'Défaillance compas ou gyro',
+      'Erreur de calibration AIS',
+      'Manipulation GNSS (Spoofing)'
     ],
     actions: [
-      'Vérifier les conditions de courant dans la zone',
-      'Comparer avec les données historiques du navire',
-      'Évaluer si c\'est un problème technique AIS'
+      'Vérifier les vecteurs vent/courant dans la zone',
+      'Comparer avec les navires voisins (Flux)',
+      'Identifier une potentielle défaillance senseur'
     ]
   },
   {
     id: 'spoofing',
-    name: 'GPS Spoofing Suspected',
+    name: 'Suspicion Spoofing GNSS',
     icon: AlertTriangle,
     severity: 'high',
-    description: 'Suspicion de falsification de la position GPS, une technique utilisée pour masquer la position réelle du navire. Ceci est extrêmement grave et peut indiquer des activités illégales.',
+    monitored: true,
+    description: 'Incohérences cinématiques majeures indiquant une probable falsification du signal de positionnement ou des données AIS.',
     examples: [
-      'Navire rapportant être dans un port alors qu\'il est en mer',
-      'Sauts de position impossibles (téléportation)',
-      'Plusieurs navires rapportant exactement la même position',
-      'Position rapportée sur terre ferme'
+      'Vitesse > Vitesse max théorique du type de navire',
+      'Vitesse absolue > 50 nœuds (Hors navires rapides)',
+      'Sauts de position impossibles (Téléportation)',
+      'Positions multiples simultanées (Identity theft)'
     ],
     causes: [
-      'Tentative délibérée de falsification',
-      'Activités de contrebande',
-      'Violations de sanctions',
-      'Pêche illégale'
+      'Attaque par usurpation GNSS (Spoofing)',
+      'Piratage du transpondeur AIS',
+      'Warfare électronique',
+      'Dysfonctionnement critique du récepteur GNSS'
     ],
     actions: [
-      'PRIORITÉ HAUTE - Signaler immédiatement',
-      'Corréler avec d\'autres sources (radar, satellite)',
-      'Vérifier l\'historique complet du navire',
-      'Contacter les autorités maritimes'
+      'RAPPORT PRIORITAIRE - Alerter le commandement',
+      'Valider la position par source non-GNSS (Radar, Optique)',
+      'Analyser la cohérence des messages de position',
+      'Vérifier intégrité des données statiques'
     ]
   },
   {
     id: 'position',
-    name: 'Position Discontinuity',
+    name: 'Discontinuité de Position',
     icon: MapPin,
     severity: 'high',
-    description: 'Saut de position géographiquement impossible compte tenu de la vitesse du navire, suggérant une erreur de transmission ou une falsification.',
+    monitored: true,
+    description: 'Déplacement calculé physiquement impossible entre deux rapports de position consécutifs (Vitesse implicite irréaliste).',
     examples: [
-      'Navire passant de la Méditerranée à l\'Atlantique en 5 minutes',
-      'Sauts de plus de 100 milles nautiques entre deux transmissions consécutives',
-      'Téléportation d\'un point A à un point B distant'
+      'Delta distance incompatible avec delta temps (V > 100 kts)',
+      'Saut géographique trans-régional instantané',
+      'Lat/Long invalides ou hors limites'
     ],
     causes: [
-      'Falsification GPS',
-      'Erreur de transmission AIS',
-      'Problème de réception du signal',
-      'Échange d\'identité entre navires (identity swapping)'
+      'Erreur de décodage/transmission AIS',
+      'Perte temporaire de signal GPS',
+      'Spoofing (Rejeu de trames)',
+      'Bug firmware transpondeur'
     ],
     actions: [
-      'Vérifier la continuité des transmissions',
-      'Analyser les positions précédentes et suivantes',
-      'Rechercher des patterns de spoofing',
-      'Signaler si la discontinuité persiste'
+      'Vérifier le timestamp des messages',
+      'Filtrer les points aberrants',
+      'Rechercher des traces de manipulation'
     ]
   },
   {
     id: 'communication',
-    name: 'Communication Gap',
+    name: 'Perte de Signal (Gap)',
     icon: Wifi,
     severity: 'medium',
-    description: 'Interruption anormalement longue des transmissions AIS, pouvant indiquer que le transpondeur a été volontairement éteint ou qu\'il y a un problème technique.',
+    monitored: false,
+    description: 'Absence de réception AIS dépassant le seuil de tolérance pour la classe du navire et la zone de couverture.',
     examples: [
-      'Absence de signal pendant plus de 6 heures en haute mer',
-      'Coupures répétées dans une zone avec bonne couverture',
-      'Silence radio suivi d\'une réapparition dans un autre port'
+      'Silence > 3x intervalle de report nominal',
+      'Disparition soudaine en zone de couverture nominale',
+      'Réapparition inattendue avec saut de position'
     ],
     causes: [
-      'Transpondeur volontairement éteint',
-      'Problèmes techniques',
-      'Activités de transbordement illégal',
-      'Zones de faible couverture (rare)'
+      'Extinction volontaire du transpondeur (Dark ship)',
+      'Zone d\'ombre de couverture',
+      'Saturation du canal AIS',
+      'Avarie électrique/radio'
     ],
     actions: [
-      'Noter la durée et la fréquence des coupures',
-      'Vérifier la zone de disparition',
-      'Analyser le comportement avant et après la coupure',
-      'Escalader si les coupures sont fréquentes'
+      'Vérifier la couverture théorique de la zone',
+      'Consulter les dernières positions connues',
+      'Déclencher une recherche active (Radar/Visuelle) si critique'
     ]
   },
   {
     id: 'zone',
-    name: 'Zone Violation',
+    name: 'Violation de Zone',
     icon: Shield,
     severity: 'high',
-    description: 'Entrée du navire dans une zone maritime interdite, protégée, ou soumise à restrictions sans autorisation apparente.',
+    monitored: true,
+    description: 'Présence détectée dans une zone à accès réglementé ou incompatible avec le statut du navire.',
     examples: [
-      'Entrée dans une zone de pêche protégée',
-      'Navigation dans des eaux territoriales sans autorisation',
-      'Présence dans une zone de conflit ou sous embargo',
-      'Approche non autorisée d\'infrastructures critiques'
+      'Entrée en ZEE sans autorisation',
+      'Traversée d\'aire marine protégée (AMP) à vitesse inadaptée',
+      'Mouillage en zone interdite (Câbles, Pipelines)',
+      'Loitering suspect > 2h hors zone d\'attente'
     ],
     causes: [
-      'Violation délibérée',
-      'Erreur de navigation',
-      'Conditions météo forcing deviation',
-      'Activités illégales (pêche, contrebande)'
+      'Navigation négligente',
+      'Activités illicites (Pêche, Rejet, Contrebande)',
+      'Force majeure (Météo, Avarie)',
+      'Incursion délibérée'
     ],
     actions: [
-      'Vérifier immédiatement les autorisations du navire',
-      'Contacter le navire pour clarification',
-      'Alerter les garde-côtes si nécessaire',
-      'Documenter la durée et le trajet dans la zone'
+      'Vérifier le statut légal et les autorisations',
+      'Initier procédure d\'interrogation radio',
+      'Documenter la violation (Preuve légale)',
+      'Alerter les autorités compétentes (CROSS/Gendarmerie)'
     ]
   }
 ]
@@ -200,33 +206,33 @@ function getSeverityColor(severity: string) {
     <div class="mb-8">
       <div class="flex items-center gap-3 mb-3">
         <BookOpen class="w-8 h-8 text-accent-primary" />
-        <h1 class="text-3xl font-bold text-text-primary">Guide des Types d'Anomalies</h1>
+        <h1 class="text-3xl font-bold text-text-primary">Référentiel des Anomalies</h1>
       </div>
       <p class="text-text-secondary text-lg">
-        Comprendre les différents types d'anomalies détectées par le système NOVA de surveillance maritime.
+        Définitions techniques et procédures opérationnelles pour les anomalies détectées par le système NOVA.
       </p>
     </div>
 
     <!-- Introduction Card -->
     <Card>
       <div class="space-y-3">
-        <h2 class="text-xl font-semibold text-text-primary">Comment fonctionne la détection d'anomalies ?</h2>
+        <h2 class="text-xl font-semibold text-text-primary">Algorithme de Détection</h2>
         <p class="text-text-secondary">
-          Le système NOVA analyse en temps réel les données AIS (Automatic Identification System) de tous les navires 
-          pour détecter des comportements inhabituels ou suspects. Chaque anomalie est classifiée selon son type et 
-          se voit attribuer un score de confiance.
+          Le moteur d'analyse NOVA utilise une approche <strong>multi-critères</strong> combinant analyse statistique (Z-scores), 
+          règles cinématiques (SOLAS/COLREGS) et détection d'incohérences physiques.
+          Chaque détection génère un <strong>Score de Confiance</strong> déterminant la criticité de l'alerte.
         </p>
         <div class="flex flex-wrap gap-2 mt-4">
-          <Badge variant="danger" size="sm">Score ≥ 80% : Critique</Badge>
-          <Badge variant="warning" size="sm">Score 50-79% : Attention</Badge>
-          <Badge variant="default" size="sm">Score < 50% : Information</Badge>
+          <Badge variant="danger" size="sm">Score ≥ 80% : Anomalie Critique (Action Requise)</Badge>
+          <Badge variant="warning" size="sm">Score 50-79% : Avertissement (À surveiller)</Badge>
+          <Badge variant="default" size="sm">Score < 50% : Signal faible</Badge>
         </div>
       </div>
     </Card>
 
     <!-- Anomaly Types -->
     <div class="space-y-4">
-      <h2 class="text-2xl font-bold text-text-primary mb-4">Types d'Anomalies</h2>
+      <h2 class="text-2xl font-bold text-text-primary mb-4">Classification des Anomalies</h2>
       
       <Card  
         v-for="anomaly in anomalyTypes" 
@@ -243,37 +249,49 @@ function getSeverityColor(severity: string) {
               <div>
                 <h3 class="text-xl font-semibold text-text-primary">{{ anomaly.name }}</h3>
                 <Badge :variant="getSeverityColor(anomaly.severity)" size="sm" class="mt-1">
-                  Gravité : {{ anomaly.severity === 'high' ? 'Haute' : anomaly.severity === 'medium' ? 'Moyenne' : 'Faible' }}
+                  Priorité : {{ anomaly.severity === 'high' ? 'Haute' : anomaly.severity === 'medium' ? 'Moyenne' : 'Basse' }}
+                </Badge>
+                <Badge v-if="!anomaly.monitored" variant="default" className="bg-gray-500 text-white" size="sm" class="mt-1 ml-2">
+                  Non Surveillé
                 </Badge>
               </div>
             </div>
           </div>
 
           <!-- Description -->
-          <p class="text-text-secondary">{{ anomaly.description }}</p>
+          <p class="text-text-secondary font-medium">{{ anomaly.description }}</p>
 
-          <!-- Examples -->
-          <div>
-            <h4 class="text-sm font-semibold text-text-primary mb-2">📋 Exemples concrets :</h4>
-            <ul class="list-disc list-inside space-y-1 text-sm text-text-secondary">
-              <li v-for="(example, i) in anomaly.examples" :key="i">{{ example }}</li>
-            </ul>
-          </div>
+          <!-- Grid for Details -->
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+            <!-- Examples -->
+            <div>
+              <h4 class="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
+                <span>📋</span> Indicateurs
+              </h4>
+              <ul class="list-disc list-inside space-y-1 text-sm text-text-secondary">
+                <li v-for="(example, i) in anomaly.examples" :key="i">{{ example }}</li>
+              </ul>
+            </div>
 
-          <!-- Causes -->
-          <div>
-            <h4 class="text-sm font-semibold text-text-primary mb-2">🔍 Causes possibles :</h4>
-            <ul class="list-disc list-inside space-y-1 text-sm text-text-secondary">
-              <li v-for="(cause, i) in anomaly.causes" :key="i">{{ cause }}</li>
-            </ul>
-          </div>
+            <!-- Causes -->
+            <div>
+              <h4 class="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
+                <span>🔍</span> Hypothèses
+              </h4>
+              <ul class="list-disc list-inside space-y-1 text-sm text-text-secondary">
+                <li v-for="(cause, i) in anomaly.causes" :key="i">{{ cause }}</li>
+              </ul>
+            </div>
 
-          <!-- Actions -->
-          <div class="bg-bg-primary p-3 rounded-lg">
-            <h4 class="text-sm font-semibold text-text-primary mb-2">✅ Actions recommandées :</h4>
-            <ul class="list-disc list-inside space-y-1 text-sm text-text-secondary">
-              <li v-for="(action, i) in anomaly.actions" :key="i">{{ action }}</li>
-            </ul>
+            <!-- Actions -->
+            <div class="bg-bg-primary/50 p-3 rounded-lg">
+              <h4 class="text-sm font-semibold text-text-primary mb-2 flex items-center gap-2">
+                <span>✅</span> Procédure
+              </h4>
+              <ul class="list-disc list-inside space-y-1 text-sm text-text-secondary">
+                <li v-for="(action, i) in anomaly.actions" :key="i">{{ action }}</li>
+              </ul>
+            </div>
           </div>
         </div>
       </Card>

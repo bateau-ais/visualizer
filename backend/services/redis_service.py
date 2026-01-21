@@ -30,7 +30,10 @@ class RedisService:
                 password=settings.redis_password,
                 db=settings.redis_db,
                 encoding="utf-8",
-                decode_responses=True
+                decode_responses=True,
+                max_connections=50,        # Limit connection pool
+                socket_timeout=5.0,        # Fail fast on network issues
+                socket_connect_timeout=5.0 # Fail fast on connection
             )
             await self.redis.ping()
             logger.info("✅ Connected to Redis")
@@ -112,6 +115,20 @@ class RedisService:
         cutoff = (datetime.utcnow() - timedelta(hours=hours)).timestamp()
         
         points = await self.redis.zrangebyscore(key, cutoff, "+inf")
+        # Limit to last 2000 points to prevent payload explosion
+        if len(points) > 2000:
+             # Take every Nth point to downsample if needed, or just last 2000
+             # For now, just taking the last 2000
+             points = points[-2000:]
+        if not points:
+            return []
+            
+        # Downsampling simple (décimation) si trop de points
+        MAX_POINTS = 500
+        if len(points) > MAX_POINTS:
+            step = len(points) // MAX_POINTS
+            points = points[::step]
+            
         return [json.loads(p) for p in points]
     
     # --- Anomalies ---
@@ -129,6 +146,48 @@ class RedisService:
         # Keep only last 7 days
         cutoff = (datetime.utcnow() - timedelta(days=7)).timestamp()
         await self.redis.zremrangebyscore("anomalies:recent", 0, cutoff)
+
+        # Also store in vessel-specific history
+        vessel_key = f"vessel:anomalies:{anomaly_data['mmsi']}"
+        await self.redis.zadd(
+            vessel_key,
+            {json.dumps(anomaly_data): score}
+        )
+        # Keep only last 50 anomalies per vessel
+        await self.redis.zremrangebyrank(vessel_key, 0, -51)
+
+    async def update_anomaly_status(self, mmsi: int, is_anomaly: bool, threshold: int) -> bool:
+        """
+        Update anomaly status with hysteresis.
+        Returns the effective status (True for anomaly, False for normal).
+        If existing anomaly:
+          - New anomaly frame -> reset clean counter -> True
+          - Clean frame -> increment clean counter. If < threshold -> True. If >= threshold -> False (and clear).
+        If no existing anomaly:
+          - New anomaly frame -> stored as anomaly -> True
+          - Clean frame -> False
+        """
+        key = f"vessel:clean_frames:{mmsi}"
+        
+        if is_anomaly:
+            # Reset clean frames counter and mark as anomaly
+            await self.redis.set(key, 0)
+            await self.redis.expire(key, settings.vessel_position_ttl)
+            return True
+        else:
+            # Check if we are in recovery mode
+            if await self.redis.exists(key):
+                count = await self.redis.incr(key)
+                await self.redis.expire(key, settings.vessel_position_ttl)
+                
+                if count < threshold:
+                    return True  # Still in anomaly state (recovering)
+                else:
+                    # Recovery complete
+                    await self.redis.delete(key)
+                    return False
+            else:
+                return False
     
     async def get_recent_anomalies(self, hours: int = 24, limit: int = 100) -> List[dict]:
         """Get recent anomalies."""
@@ -141,6 +200,19 @@ class RedisService:
             start=0,
             num=limit,
             withscores=False
+        )
+        
+        return [json.loads(r) for r in results]
+
+    async def get_vessel_anomalies(self, mmsi: int, limit: int = 50) -> List[dict]:
+        """Get anomalies for a specific vessel."""
+        key = f"vessel:anomalies:{mmsi}"
+        
+        # Get all anomalies for this vessel (newest first)
+        results = await self.redis.zrevrange(
+            key,
+            0,
+            limit - 1
         )
         
         return [json.loads(r) for r in results]
@@ -159,6 +231,55 @@ class RedisService:
             settings.heatmap_cache_ttl,
             json.dumps(data)
         )
+    
+    # --- Acknowledgments ---
+    
+    async def store_acknowledgment(self, mmsi: int, timestamp: datetime):
+        """Store vessel acknowledgment in Redis."""
+        key = f"vessel:acknowledged:{mmsi}"
+        await self.redis.set(key, timestamp.isoformat())
+        
+        # Add to set of all acknowledged vessels
+        await self.redis.sadd("vessels:all_acknowledged", str(mmsi))
+    
+    async def remove_acknowledgment(self, mmsi: int):
+        """Remove vessel acknowledgment from Redis."""
+        key = f"vessel:acknowledged:{mmsi}"
+        await self.redis.delete(key)
+        
+        # Remove from set of all acknowledged vessels
+        await self.redis.srem("vessels:all_acknowledged", str(mmsi))
+    
+    async def is_acknowledged(self, mmsi: int) -> bool:
+        """Check if vessel is acknowledged."""
+        key = f"vessel:acknowledged:{mmsi}"
+        return await self.redis.exists(key) > 0
+    
+    async def get_acknowledgment_time(self, mmsi: int) -> Optional[datetime]:
+        """Get time when vessel was acknowledged."""
+        key = f"vessel:acknowledged:{mmsi}"
+        timestamp_str = await self.redis.get(key)
+        if timestamp_str:
+            return datetime.fromisoformat(timestamp_str)
+        return None
+    
+    async def get_all_acknowledged(self) -> List[dict]:
+        """Get all acknowledged vessels."""
+        mmsis = await self.redis.smembers("vessels:all_acknowledged")
+        if not mmsis:
+            return []
+        
+        result = []
+        for mmsi_str in mmsis:
+            mmsi = int(mmsi_str)
+            ack_time = await self.get_acknowledgment_time(mmsi)
+            if ack_time:
+                result.append({
+                    "mmsi": mmsi,
+                    "acknowledged_at": ack_time.isoformat()
+                })
+        
+        return result
     
     # --- Stats ---
     
