@@ -10,6 +10,7 @@ FastAPI backend for NOVA maritime anomaly detection visualization.
 - ✅ NATS subscriber (`nova.fused`)
 - ✅ External APIs (VesselFinder, MarineTraffic)
 - ✅ Automatic heatmap generation
+- 📚 [Database Schema](../DATABASE_SCHEMA.md)
 
 ## Setup
 

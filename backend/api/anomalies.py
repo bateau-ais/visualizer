@@ -7,7 +7,7 @@ REST endpoints for anomaly data and heatmaps.
 from fastapi import APIRouter, HTTPException, Query
 from datetime import datetime, timedelta
 from typing import Optional
-from models.anomaly import AnomalyEvent, AnomaliesResponse, DashboardStats, HeatmapResponse, HeatmapCell
+from models.anomaly import AnomalyEvent, DashboardStats, HeatmapResponse, HeatmapCell
 from services.redis_service import redis_service
 from collections import defaultdict
 from config import settings

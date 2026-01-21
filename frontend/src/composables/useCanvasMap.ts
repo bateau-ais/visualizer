@@ -2,6 +2,7 @@ import { ref, shallowRef, onUnmounted } from 'vue'
 import L from 'leaflet'
 import type { Vessel } from '@/types/vessel'
 import { getVesselStatusColor } from '@/utils/colors'
+import { useVesselsStore } from '@/stores/vessels'
 
 interface VesselRenderCache {
     x: number

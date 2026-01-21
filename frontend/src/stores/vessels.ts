@@ -1,4 +1,4 @@
-aimport { defineStore } from 'pinia'
+import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import type { Vessel, VesselFilter } from '@/types/vessel'
 import api from '@/utils/api'
@@ -11,7 +11,7 @@ export const useVesselsStore = defineStore('vessels', () => {
     const selectedVessel = ref<Vessel | null>(null)
     const loading = ref(false)
     const error = ref<string | null>(null)
-    const lastUpdate = ref(Date.now())w
+    const lastUpdate = ref(Date.now())
     const dataLevel = ref<'none' | 'summary' | 'full'>('none')
 
     // Map State (to persist view between navigations)
