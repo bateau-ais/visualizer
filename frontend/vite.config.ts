@@ -42,11 +42,11 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://visualizer:8000',
+        target: 'http://aggregator:8000',
         changeOrigin: true
       },
       '/ws': {
-        target: 'ws://visualizer:8000',
+        target: 'ws://aggregator:8000',
         ws: true
       }
     }
