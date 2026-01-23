@@ -1,15 +1,15 @@
 # =============================================================================
 # Stage 1: Development (with hot-reload for fast iteration)
 # =============================================================================
-FROM node:20-alpine as dev
+FROM oven/bun:1.1.13-alpine as dev
 
 WORKDIR /app
 
 # Copy package files first (better Docker layer caching)
-COPY package*.json ./
+COPY package.json ./
 
 # Install ALL dependencies (including devDependencies)
-RUN npm install
+RUN bun install
 
 # Copy source files
 COPY . .
@@ -19,26 +19,26 @@ EXPOSE 5173
 
 # Run in dev mode with hot-reload
 # Vite will watch for file changes and rebuild incrementally
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+CMD ["bun", "run", "dev", "--", "--host", "0.0.0.0"]
 
 # =============================================================================
 # Stage 2: Build stage (creates production bundle)
 # =============================================================================
-FROM node:20-alpine as build
+FROM oven/bun:1.1.13-alpine as build
 
 WORKDIR /app
 
 # Copy package files
-COPY package*.json ./
+COPY bun.lock package.json ./
 
 # Install dependencies (production + dev for build tools)
-RUN npm install
+RUN bun install
 
 # Copy source files
 COPY . .
 
 # Build for production
-RUN npm run build
+RUN bun run build
 
 # =============================================================================
 # Stage 3: Production (minimal nginx serving static files)
