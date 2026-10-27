@@ -71,13 +71,13 @@ const distance = Math.sqrt(dx * dx + dy * dy)
 ## Files Modified
 
 ### Created
-- [`src/composables/useCanvasMap.ts`](file:///src/composables/useCanvasMap.ts) - Canvas rendering system
+- [`src/composables/useCanvasMap.ts`](src/composables/useCanvasMap.ts) - Canvas rendering system
 
 ### Modified
-- [`src/components/map/LeafletMap.vue`](file:///src/components/map/LeafletMap.vue) - Switched to Canvas rendering
+- [`src/components/map/LeafletMap.vue`](src/components/map/LeafletMap.vue) - Switched to Canvas rendering
 
 ### Preserved
-- [`src/composables/useMap.ts`](file:///src/composables/useMap.ts) - Kept for reference/fallback
+- [`src/composables/useMap.ts`](src/composables/useMap.ts) - Kept for reference/fallback
 
 ## Testing
 
